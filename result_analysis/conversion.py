@@ -1,14 +1,15 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Control points for the calibration curve
-# Format : [x,y] = [absorbance (no units), VWF activity (% or UI/dL)]
+# Format : [x,y] = [absorbance (AU), VWF activity (% or UI/dL)]
 CONTROL_POINTS = np.array(
     [
         [0.0, 0.0], # when the mesured absorbance in the agitated sample is the same as in the
                     # non-agitated sample, VWF activity is 0%
-        [1.0, 19.7], # TODO: replace the x value with the actual measured absorbance for 19.7% VWF
+        [0.2, 19.7], # TODO: replace the x value with the actual measured absorbance for 19.7% VWF
                      # activity
-        [3.0, 76.5]  # TODO: replace the x value with the actual measured absorbance for 76.5% VWF
+        [0.8, 76.5]  # TODO: replace the x value with the actual measured absorbance for 76.5% VWF
                      # activity
     ]
 )
@@ -40,3 +41,40 @@ vwf_activity = absorbance_to_vwf_activity(non_agitated_absorbance, agitated_abso
 
 # Print the result
 print(f"The VWF activity is: {vwf_activity:.2f} %")
+
+###### DEBUGGING PLOTTING CODE ######
+
+# Show the calibration curve with the measured point
+x_vals = np.linspace(0, 2, 100)
+y_vals = m * x_vals + b
+
+plt.plot(
+    x_vals, y_vals,
+    color="black",
+    linestyle="--",
+    label="Calibration Curve")
+plt.scatter(
+    [0], [0],
+    color="red",
+    label="Zero Point")
+plt.scatter(
+    [0.2], [19.7], # TODO: replace with actual absorbance value
+    color="blue",
+    label="19.7% VWF Activity"
+) 
+plt.scatter(
+    [0.8], [76.5], # TODO: replace with actual absorbance value
+    color="green",
+    label="76.5% VWF Activity"
+)
+plt.scatter(
+    [agitated_absorbance - non_agitated_absorbance], [vwf_activity],
+    color="orange",
+    label=f"Measured Point ({vwf_activity:.2f}% VWF Activity)"
+)
+
+plt.title("VWF Activity vs Absorbance")
+plt.xlabel("Absorbance [AU]")
+plt.ylabel("VWF Activity [%]")
+plt.legend()
+plt.show()
