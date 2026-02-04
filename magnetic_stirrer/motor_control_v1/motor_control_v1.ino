@@ -70,7 +70,6 @@ void loop() {
   while (millis() - startTime < 1000) {
 
     int v = analogRead(pin_hall);
-
     if (v > 650 && !hallHigh) {
       revolution++;
       hallHigh = true;

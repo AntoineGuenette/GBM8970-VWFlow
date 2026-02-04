@@ -24,7 +24,7 @@ bool piFrozen = false;
 
 // PI gains (start conservative)
 double Kp = 0.05;
-double Ki = 0.006;
+double Ki = 0.003;
 double Kd = 0.0;            // OFF
 
 PID speedPI(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
