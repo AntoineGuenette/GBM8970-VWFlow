@@ -1,120 +1,169 @@
 #include <PID_v1.h>
-//PIN intit
-const int pin_hall = 2; 
-int pin_motor = 9;
-int pin_pot   = A0;
 
-//RPM init
-const unsigned long RPMcalcTime = 200;  // ms
-unsigned long RPMmesureMillis = 0;
-volatile unsigned int revolution = 0;
-bool hallHigh = false;
+// =========================
+// PIN SETUP
+// =========================
+const int pin_hall  = 2;    // digital hall sensor
+const int pin_motor = 9;    // PWM output
 
-float rawRPM = 0.0;
+// =========================
+// CONTROL TIMING
+// =========================
+const unsigned long CTRL_PERIOD_MS = 250;   // PI + RPM update
+unsigned long lastCtrlMillis = 0;
+
+// =========================
+// RPM MEASUREMENT
+// =========================
+volatile unsigned long pulseCount = 0;
+const int PULSES_PER_REV = 1;
+
+// =========================
+// FILTERING
+// =========================
+double rawRPM = 0.0;
 double rpmFiltered = 0.0;
-const double alpha = 0.25;
+const double alpha = 0.2;
 
-//PI variables 
-double Setpoint = 5000.0;   // target RPM
-double Input    = 0.0;      // filtered RPM
-double Output   = 0.0;      // PWM 0–255
-const double RPM_DEADBAND = 30.0;   // ±30 RPM
-bool piFrozen = false;
+// =========================
+// CONTROL VARIABLES
+// =========================
+double Setpoint = 3000.0;
+double Input    = 0.0;
+double PIout    = 0.0;
 
+// Feedforward
+const double kFF = 0.0091;   // PWM per RPM
 
-// PI gains (start conservative)
-double Kp = 0.05;
-double Ki = 0.003;
-double Kd = 0.0;            // OFF
+// PI gains 
+double Kp = 0.004;
+double Ki = 0.00087;
+double Kd = 0.0;
 
-PID speedPI(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+// Limits
+const double MAX_PI_STEP = 1.0;   // PWM per cycle
+const double SOFT_BAND   = 150.0; // RPM
 
-//UI
+PID speedPI(&Input, &PIout, &Setpoint, Kp, Ki, Kd, DIRECT);
+
+// =========================
+// STATE
+// =========================
 bool motorEnabled = true;
 
-void setup() {
+// =========================
+// ISR
+// =========================
+void hallISR() {
+  pulseCount++;
+}
 
+// =========================
+// SETUP
+// =========================
+void setup() {
   pinMode(pin_hall, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(pin_hall), hallISR, FALLING);
 
-  
   pinMode(pin_motor, OUTPUT);
   analogWrite(pin_motor, 0);
 
+  speedPI.SetSampleTime(CTRL_PERIOD_MS);
+  speedPI.SetOutputLimits(-50, 50);  // PI is correction only
   speedPI.SetMode(AUTOMATIC);
-  speedPI.SetSampleTime(RPMcalcTime);
-  speedPI.SetOutputLimits(0, 255);
 
   Serial.begin(9600);
 }
 
+// =========================
+// LOOP
+// =========================
 void loop() {
   handleSerialUI();
 
   unsigned long now = millis();
+  if (now - lastCtrlMillis < CTRL_PERIOD_MS) return;
+  lastCtrlMillis = now;
 
-  const double RPM_DEADBAND = 30.0;
+  // -------------------------
+  // RPM CALCULATION
+  // -------------------------
+  unsigned long pulses;
+  noInterrupts();
+  pulses = pulseCount;
+  pulseCount = 0;
+  interrupts();
 
-if (now - RPMmesureMillis >= RPMcalcTime) {
-  rpmCalc(now);
+  rawRPM = (pulses * 60000.0) / (CTRL_PERIOD_MS * PULSES_PER_REV);
+  rpmFiltered = alpha * rawRPM + (1.0 - alpha) * rpmFiltered;
 
-  double error = Setpoint - rpmFiltered;
+  // -------------------------
+  // MOTOR OFF
+  // -------------------------
   if (!motorEnabled) {
-      analogWrite(pin_motor, 0);   // ensure motor is off
-      return;                      // skip PI + PWM only
-    }
-  if (abs(error) <= RPM_DEADBAND) {
-    // --- Inside deadband: freeze PI ---
-    if (!piFrozen) {
-      speedPI.SetMode(MANUAL);
-      piFrozen = true;
-    }
-  } else {
-    // --- Outside deadband: normal PI ---
-    if (piFrozen) {
-      speedPI.SetMode(AUTOMATIC);
-      piFrozen = false;
-    }
-
-    Input = rpmFiltered;
-    speedPI.Compute();
+    analogWrite(pin_motor, 0);
+    return;
   }
 
-  analogWrite(pin_motor, (int)Output);
+  // -------------------------
+  // ERROR
+  // -------------------------
+  double error = Setpoint - rpmFiltered;
 
+  // -------------------------
+  // FEEDFORWARD
+  // -------------------------
+  double pwmFF = kFF * Setpoint;
+
+  // -------------------------
+  // PI CONTROL WITH HOLD
+  // -------------------------
+  if (abs(error) < 80.0) {
+    // HOLD MODE: disable PI completely
+    speedPI.SetMode(MANUAL);
+    PIout = 0;
+  } else {
+    speedPI.SetMode(AUTOMATIC);
+    Input = rpmFiltered;
+    speedPI.Compute();   // writes into PIout
+  }
+
+  // -------------------------
+  // SOFT AUTHORITY
+  // -------------------------
+  if (abs(error) < SOFT_BAND) {
+    PIout *= abs(error) / SOFT_BAND;
+  }
+
+  // -------------------------
+  // SLEW LIMIT (PI ONLY)
+  // -------------------------
+  static double lastPI = 0;
+  if (PIout > lastPI + MAX_PI_STEP) PIout = lastPI + MAX_PI_STEP;
+  if (PIout < lastPI - MAX_PI_STEP) PIout = lastPI - MAX_PI_STEP;
+  lastPI = PIout;
+
+  // -------------------------
+  // APPLY PWM
+  // -------------------------
+  double pwmCmd = pwmFF + PIout;
+  pwmCmd = constrain(pwmCmd, 0, 255);
+  analogWrite(pin_motor, (int)pwmCmd);
+
+  // -------------------------
+  // DEBUG
+  // -------------------------
   Serial.print(Setpoint);
   Serial.print(",");
   Serial.print(rpmFiltered);
   Serial.print(",");
-  Serial.println(Output);
+  Serial.println(pwmCmd);
 }
 
-}
 
-void hallISR() {
-  revolution++;
-}
-
-void rpmCalc(unsigned long now) {
-  unsigned long dt = now - RPMmesureMillis;
-
-  unsigned int rev;
-  noInterrupts();
-  rev = revolution;
-  revolution = 0;
-  interrupts();
-
-  if (dt > 0 && rev > 0) {
-    rawRPM = (rev * 60000.0) / dt;
-  } else {
-    rawRPM = 0;
-  }
-
-  rpmFiltered = alpha * rawRPM + (1.0 - alpha) * rpmFiltered;
-  RPMmesureMillis = now;
-}
-
+// =========================
 // SERIAL UI
+// =========================
 void handleSerialUI() {
   if (!Serial.available()) return;
 
@@ -122,61 +171,25 @@ void handleSerialUI() {
   cmd.trim();
 
   if (cmd.startsWith("S ")) {
-    double rpm = cmd.substring(2).toFloat();
-    Setpoint = constrain(rpm, 0, 12000);
-    Serial.print("Setpoint set to ");
-    Serial.println(Setpoint);
+    Setpoint = constrain(cmd.substring(2).toFloat(), 0, 12000);
   }
 
   else if (cmd.startsWith("KP ")) {
-    Kp = cmd.substring(2).toFloat();
-
-    speedPI.SetMode(MANUAL);
-    speedPI.SetTunings(Kp, Ki, 0.0);
-    speedPI.SetMode(AUTOMATIC);
-
-    Serial.print("Kp = ");
-    Serial.println(Kp);
-
+    Kp = cmd.substring(3).toFloat();
+    speedPI.SetTunings(Kp, Ki, 0);
   }
 
   else if (cmd.startsWith("KI ")) {
-    Kp = cmd.substring(2).toFloat();
-
-    speedPI.SetMode(MANUAL);
-    speedPI.SetTunings(Kp, Ki, 0.0);
-    speedPI.SetMode(AUTOMATIC);
-
-    Serial.print("Kp = ");
-    Serial.println(Kp);
-
+    Ki = cmd.substring(3).toFloat();
+    speedPI.SetTunings(Kp, Ki, 0);
   }
 
   else if (cmd == "STOP") {
     motorEnabled = false;
-    speedPI.SetMode(MANUAL);
     analogWrite(pin_motor, 0);
-    Serial.println("Motor stopped");
   }
 
   else if (cmd == "START") {
-    motorEnabled = true;                    // start near steady-state
-    speedPI.SetMode(AUTOMATIC);
-    analogWrite(pin_motor, Output);
-}
-
-  else if (cmd == "STATUS") {
-    Serial.println("----- STATUS -----");
-    Serial.print("Target RPM: "); Serial.println(Setpoint);
-    Serial.print("RPM: "); Serial.println(rpmFiltered);
-    Serial.print("PWM: "); Serial.println(Output);
-    Serial.print("Kp: "); Serial.println(Kp);
-    Serial.print("Ki: "); Serial.println(Ki);
-    Serial.println("------------------");
-  }
-
-  else {
-    Serial.println("Unknown command");
+    motorEnabled = true;
   }
 }
-
