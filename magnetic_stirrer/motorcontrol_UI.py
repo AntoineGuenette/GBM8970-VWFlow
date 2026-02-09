@@ -20,6 +20,13 @@ RPM_MAX = 7500
 SHEAR_MIN = 500 # Real value : 451.5
 SHEAR_MAX = 3800 # Real value : 3869.5
 
+# Simulation points (RPM, shear rate)
+SIMULATION_POINTS = [
+    (1000, 451.5),
+    (3000, 1464.5),
+    (7500, 3869.5),
+]
+
 PLOT_WINDOW_SEC = 10        # seconds shown on plot
 PLOT_REFRESH_MS = 100       # plot refresh rate
 
@@ -75,17 +82,41 @@ status_text = tk.StringVar(value=f"Connected to {PORT}")
 # =========================
 # CONVERSION FUNCTIONS
 # =========================
+
+def linear_coeff(p1, p2):
+    """Return (a, b) for y = a*x + b between two points."""
+    (x1, y1), (x2, y2) = p1, p2
+    a = (y2 - y1) / (x2 - x1)
+    b = y1 - a * x1
+    return a, b
+
+# Precompute linear segments from calibration points
+LINEAR_SEGMENTS = []
+for i in range(len(SIMULATION_POINTS) - 1):
+    p1 = SIMULATION_POINTS[i]
+    p2 = SIMULATION_POINTS[i + 1]
+    a, b = linear_coeff(p1, p2)
+    LINEAR_SEGMENTS.append((p1[0], p2[0], a, b))
+
 def rpm_to_shear(rpm):
-    if rpm <= 3000:
-        return 0.5065 * rpm - 55
-    else:
-        return 0.5344 * rpm - 138.7
+    """Convert RPM to shear rate using piecewise linear interpolation."""
+    for rpm_min, rpm_max, a, b in LINEAR_SEGMENTS:
+        if rpm <= rpm_max:
+            return a * rpm + b
+    # Above last point → extrapolate with last segment
+    _, _, a, b = LINEAR_SEGMENTS[-1]
+    return a * rpm + b
 
 def shear_to_rpm(gamma):
-    if gamma <= 1464.5:
-        return (gamma + 55) / 0.5065
-    else:
-        return (gamma + 138.7) / 0.5344
+    """Convert shear rate to RPM using inverse piecewise linear interpolation."""
+    for rpm_min, rpm_max, a, b in LINEAR_SEGMENTS:
+        gamma_min = a * rpm_min + b
+        gamma_max = a * rpm_max + b
+        if gamma <= gamma_max:
+            return (gamma - b) / a
+    # Above last point → extrapolate with last segment
+    _, _, a, b = LINEAR_SEGMENTS[-1]
+    return (gamma - b) / a
 
 # =========================
 # DATA BUFFERS (for plot)
