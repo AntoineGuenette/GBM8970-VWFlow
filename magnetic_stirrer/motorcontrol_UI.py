@@ -15,11 +15,13 @@ from matplotlib.figure import Figure
 # CONFIG
 # =========================
 BAUD = 9600
-RPM_MIN = 0
-RPM_MAX = 12000
+RPM_MIN = 1000
+RPM_MAX = 7500
 
 PLOT_WINDOW_SEC = 10        # seconds shown on plot
 PLOT_REFRESH_MS = 100       # plot refresh rate
+
+SIMULATION_MODE = True   # True = simulate the Arduino
 
 # =========================
 # AUTO-DETECT SERIAL PORT
@@ -33,20 +35,19 @@ def find_arduino_port():
             return p.device
     return None
 
-PORT = find_arduino_port()
+if SIMULATION_MODE:
+    ser = None
+    PORT = "SIMULATION (UI only)"
+else:
+    PORT = find_arduino_port()
+    if PORT is None:
+        messagebox.showerror(
+            "Serial error",
+            "No Arduino detected.\nPlug it in and retry."
+        )
+        raise SystemExit
 
-if PORT is None:
-    messagebox.showerror(
-        "Serial error",
-        "No Arduino detected.\nPlug it in and retry."
-    )
-    raise SystemExit
-
-try:
     ser = serial.Serial(PORT, BAUD, timeout=1)
-except Exception as e:
-    messagebox.showerror("Serial error", str(e))
-    raise SystemExit
 
 # =========================
 # UI SETUP
@@ -75,6 +76,8 @@ start_time = time.time()
 # COMMAND FUNCTIONS
 # =========================
 def apply_target(event=None):
+    if SIMULATION_MODE:
+        return
     try:
         rpm = int(target_var.get())
         if rpm < RPM_MIN or rpm > RPM_MAX:
@@ -87,9 +90,13 @@ def apply_target(event=None):
         )
 
 def start_motor():
+    if SIMULATION_MODE:
+        return
     ser.write(b"START\n")
 
 def stop_motor():
+    if SIMULATION_MODE:
+        return
     ser.write(b"STOP\n")
 
 # =========================
@@ -139,7 +146,6 @@ fig.subplots_adjust(
     hspace=0.4
 )
 
-
 # ---- FULL SCALE ----
 ax_full.set_title("RPM vs Time (Full Scale)")
 ax_full.set_ylabel("RPM")
@@ -152,12 +158,8 @@ ax_zoom.set_xlabel("Time (s)")
 ax_zoom.set_ylabel("RPM")
 ax_zoom.grid(True)
 
-
-
-
 line_full, = ax_full.plot([], [], lw=2)
 line_zoom, = ax_zoom.plot([], [], lw=2)
-
 
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.get_tk_widget().pack(
@@ -167,7 +169,6 @@ canvas.get_tk_widget().pack(
     padx=10,
     pady=10
 )
-
 
 # =========================
 # SERIAL READER THREAD
@@ -193,21 +194,22 @@ def serial_reader():
         except:
             pass
 
-threading.Thread(target=serial_reader, daemon=True).start()
+if not SIMULATION_MODE:
+    threading.Thread(target=serial_reader, daemon=True).start()
 
 def on_close():
-    try:
-        # Tell Arduino to stop motor
-        ser.write(b"STOP\n")
-        ser.flush()
-        time.sleep(0.1)   # give Arduino time to process
-    except:
-        pass
+    if not SIMULATION_MODE:
+        try:
+            ser.write(b"STOP\n")
+            ser.flush()
+            time.sleep(0.1)
+        except:
+            pass
 
-    try:
-        ser.close()
-    except:
-        pass
+        try:
+            ser.close()
+        except:
+            pass
 
     root.destroy()
 
