@@ -17,6 +17,8 @@ from matplotlib.figure import Figure
 BAUD = 9600
 RPM_MIN = 1000
 RPM_MAX = 7500
+SHEAR_MIN = 500 # Real value : 451.5
+SHEAR_MAX = 3800 # Real value : 3869.5
 
 PLOT_WINDOW_SEC = 10        # seconds shown on plot
 PLOT_REFRESH_MS = 100       # plot refresh rate
@@ -60,10 +62,30 @@ root.resizable(True, True)
 # =========================
 # VARIABLES
 # =========================
-target_var = tk.StringVar(value="Speed")
-rpm_text = tk.StringVar(value="RPM: ---")
+target_var = tk.IntVar(value=RPM_MIN)
+control_mode = tk.StringVar(value="RPM")  # "RPM" or "SHEAR"
+previous_mode = "RPM"
+last_rpm_value = RPM_MIN
+last_shear_value = SHEAR_MIN
+shear_text = tk.StringVar(value="Mean shear rate: ---")
+rpm_text = tk.StringVar(value="Rotation speed: ---")
 pwm_text = tk.StringVar(value="PWM: ---")
 status_text = tk.StringVar(value=f"Connected to {PORT}")
+
+# =========================
+# CONVERSION FUNCTIONS
+# =========================
+def rpm_to_shear(rpm):
+    if rpm <= 3000:
+        return 0.5065 * rpm - 55
+    else:
+        return 0.5344 * rpm - 138.7
+
+def shear_to_rpm(gamma):
+    if gamma <= 1464.5:
+        return (gamma + 55) / 0.5065
+    else:
+        return (gamma + 138.7) / 0.5344
 
 # =========================
 # DATA BUFFERS (for plot)
@@ -78,16 +100,15 @@ start_time = time.time()
 def apply_target(event=None):
     if SIMULATION_MODE:
         return
-    try:
+
+    if control_mode.get() == "RPM":
         rpm = int(target_var.get())
-        if rpm < RPM_MIN or rpm > RPM_MAX:
-            raise ValueError
-        ser.write(f"S {rpm}\n".encode())
-    except ValueError:
-        messagebox.showwarning(
-            "Invalid input",
-            f"Enter an integer between {RPM_MIN} and {RPM_MAX}"
-        )
+    else:
+        gamma = target_var.get()
+        rpm = int(shear_to_rpm(gamma))
+
+    rpm = max(RPM_MIN, min(RPM_MAX, rpm))
+    ser.write(f"S {rpm}\n".encode())
 
 def start_motor():
     if SIMULATION_MODE:
@@ -105,23 +126,78 @@ def stop_motor():
 left = tk.Frame(root)
 left.pack(side=tk.LEFT, padx=10, pady=10)
 
-tk.Label(left, text="Target RPM", font=("Helvetica", 12)).pack(pady=5)
+tk.Label(left, text="Control Mode", font=("Helvetica", 16)).pack(pady=5)
 
-entry = tk.Entry(
+tk.Radiobutton(
+    left, text="Rotation speed (RPM)",
+    variable=control_mode, value="RPM",
+    command=lambda: update_slider_mode()
+).pack(anchor="w")
+
+tk.Radiobutton(
+    left, text="Mean shear rate (s⁻¹)",
+    variable=control_mode, value="SHEAR",
+    command=lambda: update_slider_mode()
+).pack(anchor="w")
+
+rpm_slider = tk.Scale(
     left,
-    textvariable=target_var,
-    width=10,
-    justify="center",
-    font=("Helvetica", 16)
+    orient=tk.HORIZONTAL,
+    length=220,
+    variable=target_var
 )
-entry.pack()
-entry.bind("<Return>", apply_target)
+rpm_slider.pack(pady=10)
+
+def round_to_resolution(value, resolution):
+    return int(round(value / resolution) * resolution)
+
+def update_slider_mode():
+    global last_rpm_value, last_shear_value, previous_mode
+
+    # Save value from the mode we are leaving
+    if previous_mode == "RPM":
+        last_rpm_value = target_var.get()
+        last_shear_value = rpm_to_shear(last_rpm_value)
+    else:
+        last_shear_value = target_var.get()
+        last_rpm_value = shear_to_rpm(last_shear_value)
+
+    # Configure slider for the new mode
+    if control_mode.get() == "RPM":
+        rpm_val = round_to_resolution(last_rpm_value, 100)
+        rpm_val = max(RPM_MIN, min(RPM_MAX, rpm_val))
+        rpm_slider.config(
+            from_=RPM_MIN,
+            to=RPM_MAX,
+            resolution=100,
+            tickinterval=1500,
+            label="Rotation speed (RPM)"
+        )
+        target_var.set(int(rpm_val))
+
+    else:
+        shear_val = round_to_resolution(last_shear_value, 50)
+        shear_val = max(SHEAR_MIN, min(SHEAR_MAX, shear_val))
+        rpm_slider.config(
+            from_=round(SHEAR_MIN),
+            to=SHEAR_MAX,
+            resolution=50,
+            tickinterval=750,
+            label="Mean shear rate (s⁻¹)"
+        )
+        target_var.set(int(shear_val))
+
+    # Update previous mode
+    previous_mode = control_mode.get()
+
+update_slider_mode()
 
 tk.Button(left, text="Apply", width=12, command=apply_target).pack(pady=5)
 tk.Button(left, text="START", width=12, command=start_motor).pack(pady=2)
 tk.Button(left, text="STOP", width=12, command=stop_motor).pack(pady=2)
 
-tk.Label(left, textvariable=rpm_text, font=("Helvetica", 12)).pack(pady=10)
+tk.Label(left, textvariable=rpm_text, font=("Helvetica", 12)).pack(pady=5)
+tk.Label(left, textvariable=shear_text, font=("Helvetica", 12)).pack()
 tk.Label(left, textvariable=pwm_text, font=("Helvetica", 12)).pack()
 
 tk.Label(left, textvariable=status_text, font=("Helvetica", 9)).pack(pady=10)
@@ -189,7 +265,9 @@ def serial_reader():
                     time_buffer.append(now)
                     rpm_buffer.append(rpm_val)
 
-                    rpm_text.set(f"RPM: {rpm}")
+                    rpm_text.set(f"Rotation speed: {rpm} RPM")
+                    gamma = rpm_to_shear(rpm_val)
+                    shear_text.set(f"Mean shear rate: {gamma:.1f} s⁻¹")
                     pwm_text.set(f"PWM: {pwm}")
         except:
             pass
