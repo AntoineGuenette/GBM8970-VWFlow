@@ -30,7 +30,7 @@ SIMULATION_POINTS = [
 PLOT_WINDOW_SEC = 10        # seconds shown on plot
 PLOT_REFRESH_MS = 100       # plot refresh rate
 
-SIMULATION_MODE = True   # True = simulate the Arduino
+SIMULATION_MODE = False   # True = simulate the Arduino
 
 # =========================
 # AUTO-DETECT SERIAL PORT
@@ -78,6 +78,8 @@ shear_text = tk.StringVar(value="Mean shear rate: ---")
 rpm_text = tk.StringVar(value="Rotation speed: ---")
 pwm_text = tk.StringVar(value="PWM: ---")
 status_text = tk.StringVar(value=f"Connected to {PORT}")
+runtime_var = tk.IntVar(value=0)
+time_left_text = tk.StringVar(value="Time left: ∞")
 
 # =========================
 # CONVERSION FUNCTIONS
@@ -117,6 +119,17 @@ def shear_to_rpm(gamma):
     # Above last point → extrapolate with last segment
     _, _, a, b = LINEAR_SEGMENTS[-1]
     return (gamma - b) / a
+    
+def apply_runtime():
+    if SIMULATION_MODE:
+        return
+
+    seconds = runtime_var.get()
+    if seconds < 0:
+        messagebox.showerror("Invalid runtime", "Runtime must be >= 0 seconds")
+        return
+
+    ser.write(f"T {seconds}\n".encode())
 
 # =========================
 # DATA BUFFERS (for plot)
@@ -227,6 +240,13 @@ tk.Button(left, text="Apply", width=12, command=apply_target).pack(pady=5)
 tk.Button(left, text="START", width=12, command=start_motor).pack(pady=2)
 tk.Button(left, text="STOP", width=12, command=stop_motor).pack(pady=2)
 
+tk.Label(left, text="Run time (seconds)", font=("Helvetica", 12)).pack(pady=(10, 2))
+tk.Label(left, text="0 = run forever", font=("Helvetica", 9)).pack()
+tk.Entry(left, textvariable=runtime_var, width=10, justify="center").pack()
+tk.Button(left, text="Apply Time", width=12, command=apply_runtime).pack(pady=5)
+tk.Label(left, textvariable=time_left_text,
+         font=("Helvetica", 12, "bold")).pack(pady=5)
+
 tk.Label(left, textvariable=rpm_text, font=("Helvetica", 12)).pack(pady=5)
 tk.Label(left, textvariable=shear_text, font=("Helvetica", 12)).pack()
 tk.Label(left, textvariable=pwm_text, font=("Helvetica", 12)).pack()
@@ -284,24 +304,42 @@ def serial_reader():
     while True:
         try:
             line_in = ser.readline().decode(errors="ignore").strip()
-            if line_in:
-                # Expected: Setpoint,RPM,PWM
-                parts = line_in.split(",")
-                if len(parts) == 3:
-                    _, rpm, pwm = parts
+            if not line_in:
+                continue
 
-                    now = time.time() - start_time
-                    rpm_val = float(rpm)
+            # ---- TIME LEFT MESSAGE ----
+            if line_in.startswith("TIME_LEFT"):
+                _, value = line_in.split(",")
 
-                    time_buffer.append(now)
-                    rpm_buffer.append(rpm_val)
+                if value == "INF":
+                    time_left_text.set("Time left: ∞")
+                else:
+                    ms = int(value)
+                    sec = ms // 1000
+                    m = sec // 60
+                    s = sec % 60
+                    time_left_text.set(f"Time left: {m:02d}:{s:02d}")
+                continue
 
-                    rpm_text.set(f"Rotation speed: {rpm} RPM")
-                    gamma = rpm_to_shear(rpm_val)
-                    shear_text.set(f"Mean shear rate: {gamma:.1f} s⁻¹")
-                    pwm_text.set(f"PWM: {pwm}")
+            # ---- RPM MESSAGE ----
+            parts = line_in.split(",")
+            if len(parts) == 3:
+                _, rpm, pwm = parts
+
+                now = time.time() - start_time
+                rpm_val = float(rpm)
+
+                time_buffer.append(now)
+                rpm_buffer.append(rpm_val)
+
+                rpm_text.set(f"Rotation speed: {rpm} RPM")
+                gamma = rpm_to_shear(rpm_val)
+                shear_text.set(f"Mean shear rate: {gamma:.1f} s⁻¹")
+                pwm_text.set(f"PWM: {pwm}")
+
         except:
             pass
+
 
 if not SIMULATION_MODE:
     threading.Thread(target=serial_reader, daemon=True).start()
