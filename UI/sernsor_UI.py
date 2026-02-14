@@ -87,7 +87,7 @@ def measure():
         V0 = float(f.read())
 
     df = acquire_data()
-    df["turbidity_percent"] = (1.0 - df["Vdiff"] / V0) * 100.0
+    df["turbidity_percent"] = (V0 - df["Vdiff"]) / V0 * 100.0
 
     mean = df["turbidity_percent"].mean()
     std  = df["turbidity_percent"].std()
