@@ -63,7 +63,7 @@ else:
 # =========================
 root = tk.Tk()
 root.title("Motor Speed Controller")
-root.geometry("700x500")
+root.geometry("1000x800")
 root.resizable(True, True)
 
 # =========================
