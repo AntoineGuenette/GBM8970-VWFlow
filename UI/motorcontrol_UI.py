@@ -20,7 +20,7 @@ RPM_MAX = 7500
 SHEAR_MIN = 500     # Real value : 451.5
 SHEAR_MAX = 3800    # Real value : 3869.5
 
-SIMULATION_POINTS = [
+SIMULATION_POINTS = [ # (RPM, SHEAR) pairs for linear interpolation
     (1000, 451.5),
     (3000, 1464.5),
     (7500, 3869.5),
@@ -43,7 +43,7 @@ def find_arduino_port():
     return None
 
 # =========================
-# CONVERSION RPM <-> SHEAR
+# RPM <-> SHEAR CONVERSIONS
 # =========================
 def linear_coeff(p1, p2):
     (x1, y1), (x2, y2) = p1, p2
