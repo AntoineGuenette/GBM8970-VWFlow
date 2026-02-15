@@ -230,7 +230,10 @@ class SensorUI:
 
             # Show activity
             activity = turb_to_vwf_activity(mean_turb)
-            self.activity_text.set(f"{activity:.2f} %\n")
+            max_activity = turb_to_vwf_activity(mean_turb - std_turb)
+            min_activity = turb_to_vwf_activity(mean_turb + std_turb)
+            std_activity = (max_activity - min_activity) / 2
+            self.activity_text.set(f"({activity:.2f} ± {std_activity:.2f}) %\n")
 
             # Update calibration curve plot
             x_vals = np.linspace(0, CONTROL_POINTS[:, 0].max() + 0.5, 100)
@@ -244,10 +247,16 @@ class SensorUI:
                 color="blue",
                 label="Control Points"
             )
-            self.ax_cal.scatter(
-                [mean_turb], [activity],
+            self.ax_cal.errorbar(
+                mean_turb, activity,
+                xerr=std_turb,
+                yerr=std_activity,
+                fmt="o",
                 color="red",
-                label=f"Measured Point ({activity:.2f}% VWF Activity)"
+                ecolor="red",
+                elinewidth=2,
+                capsize=5,
+                label=f"Measured Point ({activity:.2f}% ± {std_activity:.2f}%)"
             )
             self.ax_cal.set_xlabel("Relative turbidity (%)")
             self.ax_cal.set_xlim(0, CONTROL_POINTS[:, 0].max() + 0.5)
