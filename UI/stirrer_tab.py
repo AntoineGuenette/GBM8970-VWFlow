@@ -76,12 +76,9 @@ def shear_to_rpm(gamma):
 # UI
 # =========================
 class StirrerUI:
-    def __init__(self, root):
-        # Initialize UI
-        self.root = root
-        root.title("Magnetic Stirrer Controller")
-        root.geometry("1200x800")
-        root.resizable(True, True)
+    def __init__(self, parent):
+        # Initialize tab UI
+        self.root = parent
 
         # Initialize data buffers and state
         self.start_time = time.time()
@@ -122,9 +119,6 @@ class StirrerUI:
         # Start serial reader thread
         if not SIMULATION_MODE:
             threading.Thread(target=self.serial_reader, daemon=True).start()
-
-        # Handle window close event
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     # ================= UI =================
     def _build_ui(self):
@@ -307,12 +301,3 @@ class StirrerUI:
             except:
                 pass
         self.root.destroy()
-
-
-# =========================
-# MAIN
-# =========================
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = StirrerUI(root)
-    root.mainloop()

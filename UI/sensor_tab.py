@@ -90,12 +90,9 @@ def turb_to_vwf_activity(turbidity: float) -> float:
 # UI
 # =========================
 class SensorUI:
-    def __init__(self, root):
-        # Initialize UI
-        self.root = root
-        root.title("Turbidity Sensor Controller")
-        root.geometry("1200x800")
-        root.resizable(True, True)
+    def __init__(self, parent):
+        # Initialize tab UI
+        self.root = parent
 
         # Status variables
         self.V0_text = tk.StringVar(value=f"Preivously measured V0: {self.read_V0():.3f}\n")
@@ -270,11 +267,3 @@ class SensorUI:
         except Exception as e:
             messagebox.showerror("Measurement error",
                                  f"Measurement failed:\n{e}")
-
-# =========================
-# MAIN
-# =========================
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = SensorUI(root)
-    root.mainloop()
