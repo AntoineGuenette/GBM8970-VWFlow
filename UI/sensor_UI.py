@@ -4,6 +4,7 @@ import tkinter as tk
 import serial
 import serial.tools.list_ports
 import pandas as pd
+import numpy as np
 
 from tkinter import messagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -18,6 +19,16 @@ ACQ_DURATION_S = 5.0
 V0_FILE = "V0.txt"
 SCRIPT_DIR = os.path.dirname(__file__)
 V0_PATH = os.path.join(SCRIPT_DIR, "..", "data", V0_FILE)
+
+CONTROL_POINTS = np.array(
+    [ # (Turbidity, VWF activity) pairs for the calibration curve
+        (3.2, 100), # Temporary turbidity value
+        (4.4, 75), # Temporary turbidity value
+        (5.9, 50), # Temporary turbidity value
+        (7.1, 25), # Temporary turbidity value
+        (8.2, 0) # Add a point for 0% activity (optional, but can help with extrapolation)
+    ]
+)
 
 SIMULATION_MODE = False   # True = simulate the Arduino
 
@@ -66,6 +77,14 @@ def acquire_data(duration_s=ACQ_DURATION_S):
     df = pd.DataFrame(rows, columns=["time_ms","Voff","Von","Vdiff"])
     df["time_s"] = df["time_ms"] / 1000.0
     return df
+
+# =========================
+# TURBIDITY -> VWF ACTIVITY CONVERSION
+# =========================
+m, b = np.polyfit(x=CONTROL_POINTS[:, 0], y=CONTROL_POINTS[:, 1], deg=1)
+
+def turb_to_vwf_activity(turbidity: float) -> float:
+    return m * turbidity + b
 
 # =========================
 # UI
@@ -141,8 +160,9 @@ class SensorUI:
         self.ax_turb.grid(True)
 
         self.ax_cal.set_title("Calibration curve")
+        self.ax_cal.set_xlabel("Relative turbidity (%)")
+        self.ax_cal.set_ylabel("VWF Activity (%)")
         self.ax_cal.grid(True)
-        # TODO : add labels to calibration curve axes
 
         self.line_full, = self.ax_turb.plot([], [], lw=2)
         self.line_zoom, = self.ax_cal.plot([], [], lw=2)
@@ -182,30 +202,65 @@ class SensorUI:
             if not os.path.exists(V0_PATH):
                 raise RuntimeError("Calibration required")
 
+            # Read V0 from file
             V0 = self.read_V0()
 
+            # Acquire data and compute turbidity
             df = acquire_data()
             df["turbidity_percent"] = (V0 - df["Vdiff"]) / V0 * 100.0
 
-            mean = df["turbidity_percent"].mean()
-            std  = df["turbidity_percent"].std()
+            # Show turbidity stats
+            mean_turb = df["turbidity_percent"].mean()
+            std_turb  = df["turbidity_percent"].std()
+            self.mean_turb_text.set(f"Mean turbidity: {mean_turb:.2f} %")
+            self.std_turb_text.set(f"Std deviation: {std_turb:.2f} %\n")
 
-            self.mean_turb_text.set(f"Mean turbidity: {mean:.2f} %\n")
-            self.std_turb_text.set(f"Std deviation: {std:.2f} %\n")
-
+            # Update turbidity plot
             self.ax_turb.clear()
             self.ax_turb.plot(df["time_s"], df["turbidity_percent"])
+            self.ax_turb.hlines([mean_turb], xmin=df["time_s"].min(),xmax=df["time_s"].max(),
+                                color="red", linestyle="--", label=f"Mean: {mean_turb:.2f}%")
             self.ax_turb.set_xlabel("Time (s)")
+            self.ax_turb.set_xlim(df["time_s"].min(), df["time_s"].max())
             self.ax_turb.set_ylabel("Relative turbidity (%)")
             self.ax_turb.set_title("Turbidity measurement")
             self.ax_turb.grid(True)
+            self.ax_turb.legend()
+            self.canvas.draw_idle()
+
+            # Show activity
+            activity = turb_to_vwf_activity(mean_turb)
+            self.activity_text.set(f"{activity:.2f} %\n")
+
+            # Update calibration curve plot
+            x_vals = np.linspace(0, CONTROL_POINTS[:, 0].max() + 0.5, 100)
+            y_vals = m * x_vals + b
+
+            self.ax_cal.clear()
+            self.ax_cal.plot(x_vals, y_vals, color="black",linestyle="--",
+                             label="Calibration Curve")
+            self.ax_cal.scatter(
+                CONTROL_POINTS[:, 0], CONTROL_POINTS[:, 1],
+                color="blue",
+                label="Control Points"
+            )
+            self.ax_cal.scatter(
+                [mean_turb], [activity],
+                color="red",
+                label=f"Measured Point ({activity:.2f}% VWF Activity)"
+            )
+            self.ax_cal.set_xlabel("Relative turbidity (%)")
+            self.ax_cal.set_xlim(0, CONTROL_POINTS[:, 0].max() + 0.5)
+            self.ax_cal.set_ylabel("VWF Activity (%)")
+            self.ax_cal.set_ylim(0, 200)
+            self.ax_cal.set_title("VWF Activity vs Turbidity Calibration Curve")
+            self.ax_cal.legend()
+            self.ax_cal.grid(True)
             self.canvas.draw_idle()
 
         except Exception as e:
             messagebox.showerror("Measurement error",
                                  f"Measurement failed:\n{e}")
-            
-    # TODO : add method to update calibration curve plot
 
 # =========================
 # MAIN
