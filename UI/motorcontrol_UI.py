@@ -2,12 +2,12 @@ import serial
 import serial.tools.list_ports
 import threading
 import tkinter as tk
-from tkinter import messagebox
-from collections import deque
 import time
-
 import matplotlib
 matplotlib.use("TkAgg")
+
+from tkinter import messagebox
+from collections import deque
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -17,377 +17,302 @@ from matplotlib.figure import Figure
 BAUD = 9600
 RPM_MIN = 1000
 RPM_MAX = 7500
-SHEAR_MIN = 500 # Real value : 451.5
-SHEAR_MAX = 3800 # Real value : 3869.5
+SHEAR_MIN = 500     # Real value : 451.5
+SHEAR_MAX = 3800    # Real value : 3869.5
 
-# Simulation points (RPM, shear rate)
 SIMULATION_POINTS = [
     (1000, 451.5),
     (3000, 1464.5),
     (7500, 3869.5),
 ]
 
-PLOT_WINDOW_SEC = 10        # seconds shown on plot
-PLOT_REFRESH_MS = 100       # plot refresh rate
+PLOT_WINDOW_SEC = 10
+PLOT_REFRESH_MS = 100
 
-SIMULATION_MODE = False   # True = simulate the Arduino
+SIMULATION_MODE = True # True = simulate the Arduino
 
 # =========================
-# AUTO-DETECT SERIAL PORT
+# SERIAL
 # =========================
 def find_arduino_port():
-    ports = serial.tools.list_ports.comports()
-    for p in ports:
-        if ("usbmodem" in p.device.lower() or
-            "usbserial" in p.device.lower() or
-            "arduino" in p.description.lower()):
+    for p in serial.tools.list_ports.comports():
+        if ("usbmodem" in p.device.lower()
+            or "usbserial" in p.device.lower()
+            or "arduino" in p.description.lower()):
             return p.device
     return None
 
-if SIMULATION_MODE:
-    ser = None
-    PORT = "SIMULATION (UI only)"
-else:
-    PORT = find_arduino_port()
-    if PORT is None:
-        messagebox.showerror(
-            "Serial error",
-            "No Arduino detected.\nPlug it in and retry."
-        )
-        raise SystemExit
-
-    ser = serial.Serial(PORT, BAUD, timeout=1)
-
 # =========================
-# UI SETUP
+# CONVERSION RPM <-> SHEAR
 # =========================
-root = tk.Tk()
-root.title("Motor Speed Controller")
-root.geometry("1000x800")
-root.resizable(True, True)
-
-# =========================
-# VARIABLES
-# =========================
-target_var = tk.IntVar(value=RPM_MIN)
-control_mode = tk.StringVar(value="RPM")  # "RPM" or "SHEAR"
-previous_mode = "RPM"
-last_rpm_value = RPM_MIN
-last_shear_value = SHEAR_MIN
-shear_text = tk.StringVar(value="Mean shear rate: ---")
-rpm_text = tk.StringVar(value="Rotation speed: ---")
-pwm_text = tk.StringVar(value="PWM: ---")
-status_text = tk.StringVar(value=f"Connected to {PORT}")
-runtime_var = tk.IntVar(value=0)
-time_left_text = tk.StringVar(value="Time left: ∞")
-
-# =========================
-# CONVERSION FUNCTIONS
-# =========================
-
 def linear_coeff(p1, p2):
-    """Return (a, b) for y = a*x + b between two points."""
     (x1, y1), (x2, y2) = p1, p2
     a = (y2 - y1) / (x2 - x1)
     b = y1 - a * x1
     return a, b
 
-# Precompute linear segments from calibration points
 LINEAR_SEGMENTS = []
 for i in range(len(SIMULATION_POINTS) - 1):
-    p1 = SIMULATION_POINTS[i]
-    p2 = SIMULATION_POINTS[i + 1]
-    a, b = linear_coeff(p1, p2)
-    LINEAR_SEGMENTS.append((p1[0], p2[0], a, b))
+    a, b = linear_coeff(SIMULATION_POINTS[i], SIMULATION_POINTS[i + 1])
+    LINEAR_SEGMENTS.append((SIMULATION_POINTS[i][0],
+                            SIMULATION_POINTS[i + 1][0], a, b))
 
 def rpm_to_shear(rpm):
-    """Convert RPM to shear rate using piecewise linear interpolation."""
     for rpm_min, rpm_max, a, b in LINEAR_SEGMENTS:
         if rpm <= rpm_max:
             return a * rpm + b
-    # Above last point → extrapolate with last segment
     _, _, a, b = LINEAR_SEGMENTS[-1]
     return a * rpm + b
 
 def shear_to_rpm(gamma):
-    """Convert shear rate to RPM using inverse piecewise linear interpolation."""
     for rpm_min, rpm_max, a, b in LINEAR_SEGMENTS:
-        gamma_min = a * rpm_min + b
         gamma_max = a * rpm_max + b
         if gamma <= gamma_max:
             return (gamma - b) / a
-    # Above last point → extrapolate with last segment
     _, _, a, b = LINEAR_SEGMENTS[-1]
     return (gamma - b) / a
-    
-def apply_runtime():
-    if SIMULATION_MODE:
-        return
-
-    seconds = runtime_var.get()
-    if seconds < 0:
-        messagebox.showerror("Invalid runtime", "Runtime must be >= 0 seconds")
-        return
-
-    ser.write(f"T {seconds}\n".encode())
 
 # =========================
-# DATA BUFFERS (for plot)
+# UI
 # =========================
-time_buffer = deque(maxlen=1000)
-rpm_buffer = deque(maxlen=1000)
-start_time = time.time()
+class StirrerUI:
+    def __init__(self, root):
+        # Initialize UI
+        self.root = root
+        root.title("Magnetic Stirrer Controller")
+        root.geometry("1200x800")
+        root.resizable(True, True)
 
-# =========================
-# COMMAND FUNCTIONS
-# =========================
-def apply_target(event=None):
-    if SIMULATION_MODE:
-        return
+        # Initialize data buffers and state
+        self.start_time = time.time()
+        self.time_buffer = deque(maxlen=1000)
+        self.rpm_buffer = deque(maxlen=1000)
 
-    if control_mode.get() == "RPM":
-        rpm = int(target_var.get())
-    else:
-        gamma = target_var.get()
-        rpm = int(shear_to_rpm(gamma))
+        # Control state
+        self.target_var = tk.IntVar(value=RPM_MIN)
+        self.control_mode = tk.StringVar(value="RPM")
+        self.previous_mode = "RPM"
+        self.last_rpm_value = RPM_MIN
+        self.last_shear_value = SHEAR_MIN
 
-    rpm = max(RPM_MIN, min(RPM_MAX, rpm))
-    ser.write(f"S {rpm}\n".encode())
+        # Status variables
+        self.shear_text = tk.StringVar(value="Mean shear rate: ---")
+        self.rpm_text = tk.StringVar(value="Rotation speed: ---")
+        self.pwm_text = tk.StringVar(value="PWM: ---\n")
+        self.runtime_var = tk.IntVar(value=0)
+        self.time_left_text = tk.StringVar(value="Time left: ∞")
 
-def start_motor():
-    if SIMULATION_MODE:
-        return
-    ser.write(b"START\n")
+        # Initialize serial connection
+        if SIMULATION_MODE:
+            self.ser = None
+            self.port = "SIMULATION (UI only)"
+        else:
+            self.port = find_arduino_port()
+            if self.port is None:
+                messagebox.showerror("Serial error", "No Arduino detected.")
+                raise SystemExit
+            self.ser = serial.Serial(self.port, BAUD, timeout=1)
+        self.status_text = tk.StringVar(value=f"Connected to {self.port}")
 
-def stop_motor():
-    if SIMULATION_MODE:
-        return
-    ser.write(b"STOP\n")
+        # Build the UI
+        self._build_ui()
+        self.update_slider_mode()
+        self.update_plot()
 
-# =========================
-# UI LAYOUT (LEFT PANEL)
-# =========================
-left = tk.Frame(root)
-left.pack(side=tk.LEFT, padx=10, pady=10)
+        # Start serial reader thread
+        if not SIMULATION_MODE:
+            threading.Thread(target=self.serial_reader, daemon=True).start()
 
-tk.Label(left, text="Control Mode", font=("Helvetica", 16)).pack(pady=5)
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-tk.Radiobutton(
-    left, text="Rotation speed (RPM)",
-    variable=control_mode, value="RPM",
-    command=lambda: update_slider_mode()
-).pack(anchor="w")
+    # ================= UI =================
+    def _build_ui(self):
+        # Initialize left side bar
+        left = tk.Frame(self.root)
+        left.pack(side=tk.LEFT, padx=10, pady=10)
 
-tk.Radiobutton(
-    left, text="Mean shear rate (s⁻¹)",
-    variable=control_mode, value="SHEAR",
-    command=lambda: update_slider_mode()
-).pack(anchor="w")
+        # Rotation speed control
+        tk.Label(left, text="Control Mode",
+                 font=("Helvetica", 16)).pack(pady=5)
+        tk.Radiobutton(left, text="Rotation speed (RPM)",
+                       variable=self.control_mode, value="RPM",
+                       command=self.update_slider_mode).pack(anchor="w")
+        tk.Radiobutton(left, text="Mean shear rate (s⁻¹)",
+                       variable=self.control_mode, value="SHEAR",
+                       command=self.update_slider_mode).pack(anchor="w")
+        self.rpm_slider = tk.Scale(left, orient=tk.HORIZONTAL,
+                                   length=220,
+                                   variable=self.target_var)
+        self.rpm_slider.pack(pady=10)
 
-rpm_slider = tk.Scale(
-    left,
-    orient=tk.HORIZONTAL,
-    length=220,
-    variable=target_var
-)
-rpm_slider.pack(pady=10)
+        # Action buttons
+        tk.Button(left, text="Apply", width=12,
+                  command=self.apply_target).pack(pady=2)
+        tk.Button(left, text="START", width=12,
+                  command=self.start_motor).pack(pady=2)
+        tk.Button(left, text="STOP", width=12,
+                  command=self.stop_motor).pack(pady=2)
 
-def round_to_resolution(value, resolution):
-    return int(round(value / resolution) * resolution)
+        # Runtime control
+        tk.Label(left, text="Run time (seconds)",
+                 font=("Helvetica", 12)).pack(pady=(10, 2))
+        tk.Label(left, text="0 = run forever",
+                 font=("Helvetica", 9)).pack()
+        tk.Entry(left, textvariable=self.runtime_var,
+                 width=10, justify="center").pack()
+        tk.Button(left, text="Apply Time", width=12,
+                  command=self.apply_runtime).pack(pady=5)
+        tk.Label(left, textvariable=self.time_left_text,
+                 font=("Helvetica", 12, "bold")).pack(pady=5)
 
-def update_slider_mode():
-    global last_rpm_value, last_shear_value, previous_mode
+        # Status display
+        tk.Label(left, textvariable=self.rpm_text,
+                 font=("Helvetica", 12)).pack(pady=5)
+        tk.Label(left, textvariable=self.shear_text,
+                 font=("Helvetica", 12)).pack()
+        tk.Label(left, textvariable=self.pwm_text,
+                 font=("Helvetica", 12)).pack()
+        
+        # Connection status
+        tk.Label(left, textvariable=self.status_text,
+                 font=("Helvetica", 9)).pack(pady=10)
 
-    # Save value from the mode we are leaving
-    if previous_mode == "RPM":
-        last_rpm_value = target_var.get()
-        last_shear_value = rpm_to_shear(last_rpm_value)
-    else:
-        last_shear_value = target_var.get()
-        last_rpm_value = shear_to_rpm(last_shear_value)
+        # Initialize right side plots
+        self.fig = Figure(figsize=(6.5, 6.5), dpi=100)
+        self.ax_full = self.fig.add_subplot(211)
+        self.ax_zoom = self.fig.add_subplot(212)
+        self.fig.subplots_adjust(hspace=0.35)
 
-    # Configure slider for the new mode
-    if control_mode.get() == "RPM":
-        rpm_val = round_to_resolution(last_rpm_value, 100)
-        rpm_val = max(RPM_MIN, min(RPM_MAX, rpm_val))
-        rpm_slider.config(
-            from_=RPM_MIN,
-            to=RPM_MAX,
-            resolution=100,
-            tickinterval=1500,
-            label="Rotation speed (RPM)"
-        )
-        target_var.set(int(rpm_val))
+        self.ax_full.set_title("RPM vs Time (Full Scale)")
+        self.ax_full.set_xlabel("Time (s)")
+        self.ax_full.set_ylabel("RPM")
+        self.ax_full.set_ylim(RPM_MIN, RPM_MAX)
+        self.ax_full.grid(True)
 
-    else:
-        shear_val = round_to_resolution(last_shear_value, 50)
-        shear_val = max(SHEAR_MIN, min(SHEAR_MAX, shear_val))
-        rpm_slider.config(
-            from_=round(SHEAR_MIN),
-            to=SHEAR_MAX,
-            resolution=50,
-            tickinterval=750,
-            label="Mean shear rate (s⁻¹)"
-        )
-        target_var.set(int(shear_val))
+        self.ax_zoom.set_title("RPM vs Time (Zoomed)")
+        self.ax_zoom.set_xlabel("Time (s)")
+        self.ax_zoom.set_ylabel("RPM")
+        self.ax_zoom.grid(True)
 
-    # Update previous mode
-    previous_mode = control_mode.get()
+        self.line_full, = self.ax_full.plot([], [], lw=2)
+        self.line_zoom, = self.ax_zoom.plot([], [], lw=2)
 
-update_slider_mode()
+        # Graph widget
+        canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        canvas.get_tk_widget().pack(side=tk.RIGHT,
+                                    fill=tk.BOTH, expand=True,
+                                    padx=10, pady=10)
+        self.canvas = canvas
 
-tk.Button(left, text="Apply", width=12, command=apply_target).pack(pady=5)
-tk.Button(left, text="START", width=12, command=start_motor).pack(pady=2)
-tk.Button(left, text="STOP", width=12, command=stop_motor).pack(pady=2)
+    # ================= LOGIC =================
+    def update_slider_mode(self):
+        if self.previous_mode == "RPM":
+            self.last_rpm_value = self.target_var.get()
+            self.last_shear_value = rpm_to_shear(self.last_rpm_value)
+        else:
+            self.last_shear_value = self.target_var.get()
+            self.last_rpm_value = shear_to_rpm(self.last_shear_value)
 
-tk.Label(left, text="Run time (seconds)", font=("Helvetica", 12)).pack(pady=(10, 2))
-tk.Label(left, text="0 = run forever", font=("Helvetica", 9)).pack()
-tk.Entry(left, textvariable=runtime_var, width=10, justify="center").pack()
-tk.Button(left, text="Apply Time", width=12, command=apply_runtime).pack(pady=5)
-tk.Label(left, textvariable=time_left_text,
-         font=("Helvetica", 12, "bold")).pack(pady=5)
+        if self.control_mode.get() == "RPM":
+            self.rpm_slider.config(from_=RPM_MIN, to=RPM_MAX,
+                                   resolution=100,
+                                   tickinterval=1500,
+                                   label="Rotation speed (RPM)")
+            self.target_var.set(int(self.last_rpm_value))
+        else:
+            self.rpm_slider.config(from_=SHEAR_MIN, to=SHEAR_MAX,
+                                   resolution=50,
+                                   tickinterval=750,
+                                   label="Mean shear rate (s⁻¹)")
+            self.target_var.set(int(self.last_shear_value))
 
-tk.Label(left, textvariable=rpm_text, font=("Helvetica", 12)).pack(pady=5)
-tk.Label(left, textvariable=shear_text, font=("Helvetica", 12)).pack()
-tk.Label(left, textvariable=pwm_text, font=("Helvetica", 12)).pack()
+        self.previous_mode = self.control_mode.get()
 
-tk.Label(left, textvariable=status_text, font=("Helvetica", 9)).pack(pady=10)
+    def apply_target(self):
+        if SIMULATION_MODE:
+            return
+        if self.control_mode.get() == "RPM":
+            rpm = int(self.target_var.get())
+        else:
+            rpm = int(shear_to_rpm(self.target_var.get()))
+        rpm = max(RPM_MIN, min(RPM_MAX, rpm))
+        self.ser.write(f"S {rpm}\n".encode())
 
-# =========================
-# PLOT SETUP (RIGHT PANEL)
-# =========================
-fig = Figure(figsize=(6.5, 6.5), dpi=100)
-fig.patch.set_facecolor("#f0f0f0")   # background color
+    def start_motor(self):
+        if not SIMULATION_MODE:
+            self.ser.write(b"START\n")
 
-ax_full = fig.add_subplot(211)
-ax_zoom = fig.add_subplot(212)
+    def stop_motor(self):
+        if not SIMULATION_MODE:
+            self.ser.write(b"STOP\n")
 
-ax_full.set_facecolor("white")
-ax_zoom.set_facecolor("white")
+    def apply_runtime(self):
+        if not SIMULATION_MODE:
+            self.ser.write(f"T {self.runtime_var.get()}\n".encode())
 
-fig.subplots_adjust(
-    left=0.12,
-    right=0.98,
-    top=0.95,
-    bottom=0.1,
-    hspace=0.4
-)
+    def serial_reader(self):
+        while True:
+            try:
+                line = self.ser.readline().decode(errors="ignore").strip()
+                if not line:
+                    continue
 
-# ---- FULL SCALE ----
-ax_full.set_title("RPM vs Time (Full Scale)")
-ax_full.set_ylabel("RPM")
-ax_full.set_ylim(RPM_MIN, RPM_MAX)
-ax_full.grid(True)
+                if line.startswith("TIME_LEFT"):
+                    _, v = line.split(",")
+                    if v == "INF":
+                        self.time_left_text.set("Time left: ∞")
+                    else:
+                        s = int(v) // 1000
+                        self.time_left_text.set(f"Time left: {s//60:02d}:{s%60:02d}")
+                    continue
 
-# ---- ZOOMED ----
-ax_zoom.set_title("RPM vs Time (Zoomed)")
-ax_zoom.set_xlabel("Time (s)")
-ax_zoom.set_ylabel("RPM")
-ax_zoom.grid(True)
+                _, rpm, pwm = line.split(",")
+                rpm = float(rpm)
+                t = time.time() - self.start_time
 
-line_full, = ax_full.plot([], [], lw=2)
-line_zoom, = ax_zoom.plot([], [], lw=2)
+                self.time_buffer.append(t)
+                self.rpm_buffer.append(rpm)
 
-canvas = FigureCanvasTkAgg(fig, master=root)
-canvas.get_tk_widget().pack(
-    side=tk.RIGHT,
-    fill=tk.BOTH,
-    expand=True,
-    padx=10,
-    pady=10
-)
+                self.rpm_text.set(f"Rotation speed: {rpm:.0f} RPM")
+                self.shear_text.set(f"Mean shear rate: {rpm_to_shear(rpm):.1f} s⁻¹")
+                self.pwm_text.set(f"PWM: {pwm}\n")
 
-# =========================
-# SERIAL READER THREAD
-# =========================
-def serial_reader():
-    while True:
-        try:
-            line_in = ser.readline().decode(errors="ignore").strip()
-            if not line_in:
-                continue
+            except:
+                pass
 
-            # ---- TIME LEFT MESSAGE ----
-            if line_in.startswith("TIME_LEFT"):
-                _, value = line_in.split(",")
+    def update_plot(self):
+        if self.time_buffer:
+            t0 = self.time_buffer[-1] - PLOT_WINDOW_SEC
+            times = [t for t in self.time_buffer if t >= t0]
+            rpms = list(self.rpm_buffer)[-len(times):]
 
-                if value == "INF":
-                    time_left_text.set("Time left: ∞")
-                else:
-                    ms = int(value)
-                    sec = ms // 1000
-                    m = sec // 60
-                    s = sec % 60
-                    time_left_text.set(f"Time left: {m:02d}:{s:02d}")
-                continue
+            self.line_full.set_data(times, rpms)
+            self.line_zoom.set_data(times, rpms)
 
-            # ---- RPM MESSAGE ----
-            parts = line_in.split(",")
-            if len(parts) == 3:
-                _, rpm, pwm = parts
+            self.ax_full.set_xlim(max(0, t0), self.time_buffer[-1])
+            self.ax_zoom.set_xlim(max(0, t0), self.time_buffer[-1])
 
-                now = time.time() - start_time
-                rpm_val = float(rpm)
+            c = rpms[-1]
+            self.ax_zoom.set_ylim(c - 200, c + 200)
 
-                time_buffer.append(now)
-                rpm_buffer.append(rpm_val)
+        self.canvas.draw_idle()
+        self.root.after(PLOT_REFRESH_MS, self.update_plot)
 
-                rpm_text.set(f"Rotation speed: {rpm} RPM")
-                gamma = rpm_to_shear(rpm_val)
-                shear_text.set(f"Mean shear rate: {gamma:.1f} s⁻¹")
-                pwm_text.set(f"PWM: {pwm}")
+    def on_close(self):
+        if not SIMULATION_MODE:
+            try:
+                self.ser.write(b"STOP\n")
+                self.ser.close()
+            except:
+                pass
+        self.root.destroy()
 
-        except:
-            pass
-
-
-if not SIMULATION_MODE:
-    threading.Thread(target=serial_reader, daemon=True).start()
-
-def on_close():
-    if not SIMULATION_MODE:
-        try:
-            ser.write(b"STOP\n")
-            ser.flush()
-            time.sleep(0.1)
-        except:
-            pass
-
-        try:
-            ser.close()
-        except:
-            pass
-
-    root.destroy()
-
-# =========================
-# PLOT UPDATE FUNCTION
-# =========================
-def update_plot():
-    if time_buffer:
-        t0 = time_buffer[-1] - PLOT_WINDOW_SEC
-        times = [t for t in time_buffer if t >= t0]
-        rpms = list(rpm_buffer)[-len(times):]
-
-        # ---- Full plot ----
-        line_full.set_data(times, rpms)
-        ax_full.set_xlim(max(0, t0), time_buffer[-1])
-
-        # ---- Zoomed plot ----
-        line_zoom.set_data(times, rpms)
-        ax_zoom.set_xlim(max(0, t0), time_buffer[-1])
-
-        ZOOM_RANGE = 200  # RPM zoom window
-        center = rpms[-1]
-        ax_zoom.set_ylim(center - ZOOM_RANGE, center + ZOOM_RANGE)
-
-    canvas.draw_idle()
-    root.after(PLOT_REFRESH_MS, update_plot)
-
-update_plot()
-root.protocol("WM_DELETE_WINDOW", on_close)
 
 # =========================
-# RUN UI
+# MAIN
 # =========================
-root.mainloop()
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = StirrerUI(root)
+    root.mainloop()

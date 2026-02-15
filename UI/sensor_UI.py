@@ -1,22 +1,25 @@
 import os
 import time
 import tkinter as tk
-from tkinter import ttk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 import serial
 import serial.tools.list_ports
 import pandas as pd
+
+from tkinter import messagebox
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 # =========================
 # CONFIG
 # =========================
 BAUD = 9600
 ACQ_DURATION_S = 5.0
+
 V0_FILE = "V0.txt"
 SCRIPT_DIR = os.path.dirname(__file__)
 V0_PATH = os.path.join(SCRIPT_DIR, "..", "data", V0_FILE)
-print(f"V0 path: {V0_PATH}")
+
+SIMULATION_MODE = False   # True = simulate the Arduino
 
 # =========================
 # SERIAL
@@ -65,92 +68,149 @@ def acquire_data(duration_s=ACQ_DURATION_S):
     return df
 
 # =========================
-# CALIBRATION
-# =========================
-def calibrate():
-    df = acquire_data()
-    V0 = df["Vdiff"].mean()
-
-    with open(V0_PATH, "w") as f:
-        f.write(f"{V0}\n")
-
-    return V0
-
-# =========================
-# MEASUREMENT
-# =========================
-def measure():
-    if not os.path.exists(V0_PATH):
-        raise RuntimeError("Calibration required")
-
-    with open(V0_PATH, "r") as f:
-        V0 = float(f.read())
-
-    df = acquire_data()
-    df["turbidity_percent"] = (V0 - df["Vdiff"]) / V0 * 100.0
-
-    mean = df["turbidity_percent"].mean()
-    std  = df["turbidity_percent"].std()
-
-    return df, mean, std
-
-# =========================
 # UI
 # =========================
-class TurbidityUI:
+class SensorUI:
     def __init__(self, root):
+        # Initialize UI
         self.root = root
-        root.title("Turbidity Sensor")
+        root.title("Turbidity Sensor Controller")
+        root.geometry("1200x800")
+        root.resizable(True, True)
 
-        self.result_text = tk.StringVar(value="---")
+        # Status variables
+        self.V0_text = tk.StringVar(value=f"Preivously measured V0: {self.read_V0():.3f}\n")
+        self.mean_turb_text = tk.StringVar(value="Mean turbidity: ---")
+        self.std_turb_text = tk.StringVar(value="Std deviation: ---\n")
+        self.activity_text = tk.StringVar(value="---\n")
 
-        # Buttons
-        btn_frame = tk.Frame(root)
-        btn_frame.pack(pady=10)
+        # Initialize serial connection
+        if SIMULATION_MODE:
+            self.ser = None
+            self.port = "SIMULATION (UI only)"
+        else:
+            self.port = find_arduino_port()
+            if self.port is None:
+                messagebox.showerror("Serial error", "No Arduino detected.")
+                raise SystemExit
+        self.status_text = tk.StringVar(value=f"Connected to {self.port}")
 
-        tk.Button(btn_frame, text="Calibrate", width=15, command=self.on_calibrate).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="Measure", width=15, command=self.on_measure).pack(side=tk.LEFT, padx=5)
+        # Build the UI
+        self._build_ui()
 
-        # Result label
-        tk.Label(root, textvariable=self.result_text, font=("Helvetica", 12)).pack(pady=5)
+    # ================= UI =================
+    def _build_ui(self):
 
-        # Plot
-        self.fig = Figure(figsize=(6, 4), dpi=100)
-        self.ax = self.fig.add_subplot(111)
-        self.ax.grid(True)
+        # Initialize left side bar
+        left = tk.Frame(self.root)
+        left.pack(side=tk.LEFT, padx=10, pady=10)
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=root)
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Calibration button
+        tk.Button(left, text="Calibrate", width=15,
+                  command=self.calibrate).pack(pady=2)
+        tk.Label(left, textvariable=self.V0_text,
+                 font=("Helvetica", 12)).pack(pady=2)
 
-    def on_calibrate(self):
+        # Measurement button
+        tk.Button(left, text="Measure", width=15,
+                  command=self.measure).pack(pady=2)
+        tk.Label(left, textvariable=self.mean_turb_text,
+                 font=("Helvetica", 12)).pack(pady=2)
+        tk.Label(left, textvariable=self.std_turb_text,
+                 font=("Helvetica", 12)).pack(pady=2)
+        
+        # Activity status
+        tk.Label(left, text="VWF Activity",
+                 font=("Helvetica", 16)).pack(pady=(20, 5))
+        tk.Label(left, textvariable=self.activity_text,
+                 font=("Helvetica", 12)).pack(pady=2)
+
+        # Connection status
+        tk.Label(left, textvariable=self.status_text,
+                 font=("Helvetica", 9)).pack(pady=2)
+        
+        # Initialize right side plots
+        self.fig = Figure(figsize=(6.5, 6.5), dpi=100)
+        self.ax_turb = self.fig.add_subplot(211)
+        self.ax_cal = self.fig.add_subplot(212)
+        self.fig.subplots_adjust(hspace=0.35)
+
+        self.ax_turb.set_title("Turbidity measurement")
+        self.ax_turb.set_xlabel("Time (s)")
+        self.ax_turb.set_ylabel("Relative turbidity (%)")
+        self.ax_turb.grid(True)
+
+        self.ax_cal.set_title("Calibration curve")
+        self.ax_cal.grid(True)
+        # TODO : add labels to calibration curve axes
+
+        self.line_full, = self.ax_turb.plot([], [], lw=2)
+        self.line_zoom, = self.ax_cal.plot([], [], lw=2)
+
+        # Graph widget
+        canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        canvas.get_tk_widget().pack(side=tk.RIGHT,
+                                    fill=tk.BOTH, expand=True,
+                                    padx=10, pady=10)
+        self.canvas = canvas
+
+    # ================= LOGIC =================
+    def read_V0(self):
+        if os.path.exists(V0_PATH):
+            with open(V0_PATH, "r") as f:
+                return float(f.read())
+        else:
+            raise RuntimeError("Not calibrated")
+
+    def calibrate(self):
         try:
-            V0 = calibrate()
-            self.result_text.set(f"Calibration done\nV0 = {V0:.6f} V")
+            df = acquire_data()
+            V0 = df["Vdiff"].mean()
+
+            with open(V0_PATH, "w") as f:
+                f.write(f"{V0}\n")
+
+            self.V0_text.set(f"Current V0: {V0:.3f} V\n")
+
         except Exception as e:
-            self.result_text.set(f"Calibration failed:\n{e}")
+            messagebox.showerror("Calibration error",
+                                 f"Calibration failed:\n{e}")
+            return
 
-    def on_measure(self):
-        try:
-            df, mean, std = measure()
-            self.ax.clear()
-            self.ax.plot(df["time_s"], df["turbidity_percent"])
-            self.ax.set_xlabel("Time (s)")
-            self.ax.set_ylabel("Relative turbidity (%)")
-            self.ax.set_title("Turbidity measurement")
-            self.ax.grid(True)
+    def measure(self):
+        try :
+            if not os.path.exists(V0_PATH):
+                raise RuntimeError("Calibration required")
+
+            V0 = self.read_V0()
+
+            df = acquire_data()
+            df["turbidity_percent"] = (V0 - df["Vdiff"]) / V0 * 100.0
+
+            mean = df["turbidity_percent"].mean()
+            std  = df["turbidity_percent"].std()
+
+            self.mean_turb_text.set(f"Mean turbidity: {mean:.2f} %\n")
+            self.std_turb_text.set(f"Std deviation: {std:.2f} %\n")
+
+            self.ax_turb.clear()
+            self.ax_turb.plot(df["time_s"], df["turbidity_percent"])
+            self.ax_turb.set_xlabel("Time (s)")
+            self.ax_turb.set_ylabel("Relative turbidity (%)")
+            self.ax_turb.set_title("Turbidity measurement")
+            self.ax_turb.grid(True)
             self.canvas.draw_idle()
 
-            self.result_text.set(
-                f"Mean turbidity: {mean:.2f} %\n"
-                f"Std deviation: {std:.2f} %"
-            )
         except Exception as e:
-            self.result_text.set(f"Measurement failed:\n{e}")
+            messagebox.showerror("Measurement error",
+                                 f"Measurement failed:\n{e}")
+            
+    # TODO : add method to update calibration curve plot
 
 # =========================
 # MAIN
 # =========================
 if __name__ == "__main__":
     root = tk.Tk()
-    app = TurbidityUI(root)
+    app = SensorUI(root)
     root.mainloop()
