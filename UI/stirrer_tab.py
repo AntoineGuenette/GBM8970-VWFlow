@@ -29,7 +29,7 @@ SIMULATION_POINTS = [ # (RPM, SHEAR) pairs for linear interpolation
 PLOT_WINDOW_SEC = 10
 PLOT_REFRESH_MS = 100
 
-SIMULATION_MODE = True # True = simulate the Arduino
+SIMULATION_MODE = False # True = simulate the Arduino
 
 # =========================
 # SERIAL
@@ -79,6 +79,7 @@ class StirrerUI:
     def __init__(self, parent):
         # Initialize tab UI
         self.root = parent
+        self.ser = None
 
         # Initialize data buffers and state
         self.start_time = time.time()
@@ -141,7 +142,7 @@ class StirrerUI:
         self.rpm_slider.pack(pady=10)
 
         # Action buttons
-        tk.Button(left, text="Apply", width=12,
+        tk.Button(left, text="Apply Speed/Shear", width=12,
                   command=self.apply_target).pack(pady=2)
         tk.Button(left, text="START", width=12,
                   command=self.start_motor).pack(pady=2)
@@ -231,18 +232,19 @@ class StirrerUI:
         else:
             rpm = int(shear_to_rpm(self.target_var.get()))
         rpm = max(RPM_MIN, min(RPM_MAX, rpm))
-        self.ser.write(f"S {rpm}\n".encode())
+        if not SIMULATION_MODE and self.ser is not None:
+            self.ser.write(f"S {rpm}\n".encode())
 
     def start_motor(self):
-        if not SIMULATION_MODE:
+        if not SIMULATION_MODE and self.ser is not None:
             self.ser.write(b"START\n")
 
     def stop_motor(self):
-        if not SIMULATION_MODE:
+        if not SIMULATION_MODE and self.ser is not None:
             self.ser.write(b"STOP\n")
 
     def apply_runtime(self):
-        if not SIMULATION_MODE:
+        if not SIMULATION_MODE and self.ser is not None:
             self.ser.write(f"T {self.runtime_var.get()}\n".encode())
 
     def serial_reader(self):
