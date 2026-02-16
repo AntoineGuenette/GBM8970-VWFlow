@@ -44,41 +44,6 @@ def find_arduino_port():
     return None
 
 # =========================
-# ACQUISITION
-# =========================
-def acquire_data(duration_s=ACQ_DURATION_S):
-    PORT = find_arduino_port()
-    if PORT is None:
-        raise RuntimeError("No Arduino detected")
-
-    ser = serial.Serial(PORT, BAUD, timeout=1)
-    time.sleep(2)
-
-    rows = []
-    t_start = time.time()
-
-    while time.time() - t_start < duration_s:
-        line = ser.readline().decode(errors="ignore").strip()
-
-        if not line or line.startswith("time_ms"):
-            continue
-
-        try:
-            t_ms, voff, von, vdiff = map(float, line.split(","))
-            rows.append([t_ms, voff, von, vdiff])
-        except ValueError:
-            continue
-
-    ser.close()
-
-    if not rows:
-        raise RuntimeError("No data received")
-
-    df = pd.DataFrame(rows, columns=["time_ms","Voff","Von","Vdiff"])
-    df["time_s"] = df["time_ms"] / 1000.0
-    return df
-
-# =========================
 # TURBIDITY -> VWF ACTIVITY CONVERSION
 # =========================
 m, b = np.polyfit(x=CONTROL_POINTS[:, 0], y=CONTROL_POINTS[:, 1], deg=1)
@@ -90,9 +55,11 @@ def turb_to_vwf_activity(turbidity: float) -> float:
 # UI
 # =========================
 class SensorUI:
-    def __init__(self, parent):
+    def __init__(self, parent, ser=None):
         # Initialize tab UI
         self.root = parent
+        self.ser = ser
+        self.port = ser.port
 
         # Status variables
         self.V0_text = tk.StringVar(value=f"Preivously measured V0: {self.read_V0():.3f}\n")
@@ -105,7 +72,6 @@ class SensorUI:
             self.ser = None
             self.port = "SIMULATION (UI only)"
         else:
-            self.port = find_arduino_port()
             if self.port is None:
                 messagebox.showerror("Serial error", "No Arduino detected.")
                 raise SystemExit
@@ -178,10 +144,36 @@ class SensorUI:
                 return float(f.read())
         else:
             raise RuntimeError("Not calibrated")
+    
+    def acquire_data(self, duration_s=ACQ_DURATION_S):
+        ser = self.ser
+        time.sleep(0.1)
+
+        rows = []
+        t_start = time.time()
+        while time.time() - t_start < duration_s:
+            line = ser.readline().decode(errors="ignore").strip()
+            if not line:
+                continue
+            try:
+                t_ms, voff, von, vdiff = map(float, line.split(","))
+                rows.append([t_ms, voff, von, vdiff])
+            except ValueError:
+                continue
+
+        if not rows:
+            raise RuntimeError("No data received")
+
+        df = pd.DataFrame(rows, columns=["time_ms","Voff","Von","Vdiff"])
+        df["time_s"] = df["time_ms"] / 1000.0
+        return df
+
 
     def calibrate(self):
         try:
-            df = acquire_data()
+            self.ser.write(b"START\n")
+
+            df = self.acquire_data()
             V0 = df["Vdiff"].mean()
 
             with open(V0_PATH, "w") as f:
@@ -199,11 +191,13 @@ class SensorUI:
             if not os.path.exists(V0_PATH):
                 raise RuntimeError("Calibration required")
 
+            self.ser.write(b"START\n")
+
             # Read V0 from file
             V0 = self.read_V0()
 
             # Acquire data and compute turbidity
-            df = acquire_data()
+            df = self.acquire_data()
             df["turbidity_percent"] = (V0 - df["Vdiff"]) / V0 * 100.0
 
             # Show turbidity stats

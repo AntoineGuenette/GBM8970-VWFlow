@@ -34,13 +34,6 @@ SIMULATION_MODE = False # True = simulate the Arduino
 # =========================
 # SERIAL
 # =========================
-def find_arduino_port():
-    for p in serial.tools.list_ports.comports():
-        if ("usbmodem" in p.device.lower()
-            or "usbserial" in p.device.lower()
-            or "arduino" in p.description.lower()):
-            return p.device
-    return None
 
 # =========================
 # RPM <-> SHEAR CONVERSIONS
@@ -76,10 +69,10 @@ def shear_to_rpm(gamma):
 # UI
 # =========================
 class StirrerUI:
-    def __init__(self, parent):
+    def __init__(self, parent, ser):
         # Initialize tab UI
         self.root = parent
-        self.ser = None
+        self.ser = ser
 
         # Initialize data buffers and state
         self.start_time = time.time()
@@ -101,16 +94,19 @@ class StirrerUI:
         self.time_left_text = tk.StringVar(value="Time left: ∞")
 
         # Initialize serial connection
-        if SIMULATION_MODE:
-            self.ser = None
-            self.port = "SIMULATION (UI only)"
+        if not SIMULATION_MODE:
+            self.port = self.ser.port
+            self.status_text = tk.StringVar(value=f"Connected to {self.port}")
+
+            # Turn on streaming at startup
+            try:
+                self.ser.write(b"STREAM ON\n")
+            except Exception:
+                pass
         else:
-            self.port = find_arduino_port()
-            if self.port is None:
-                messagebox.showerror("Serial error", "No Arduino detected.")
-                raise SystemExit
-            self.ser = serial.Serial(self.port, BAUD, timeout=1)
-        self.status_text = tk.StringVar(value=f"Connected to {self.port}")
+            self.ser = None
+            self.port = "SIMULATION UI only"
+            self.status_text = tk.StringVar(value=self.port)
 
         # Build the UI
         self._build_ui()
@@ -237,7 +233,11 @@ class StirrerUI:
 
     def start_motor(self):
         if not SIMULATION_MODE and self.ser is not None:
-            self.ser.write(b"START\n")
+            try:
+                self.ser.write(b"STREAM ON\n")
+                self.ser.write(b"START\n")
+            except Exception:
+                pass
 
     def stop_motor(self):
         if not SIMULATION_MODE and self.ser is not None:
@@ -298,8 +298,9 @@ class StirrerUI:
     def on_close(self):
         if not SIMULATION_MODE:
             try:
+                self.ser.write(b"STREAM OFF\n")
                 self.ser.write(b"STOP\n")
                 self.ser.close()
-            except:
+            except Exception:
                 pass
         self.root.destroy()

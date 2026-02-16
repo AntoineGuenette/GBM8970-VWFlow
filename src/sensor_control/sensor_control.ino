@@ -1,27 +1,20 @@
 // =========================
-// PIN SETUP
+// PIN & ACQUISITION SETUP
 // =========================
 const int pin_ledIR = 8;     // IR LED
 const int pin_adc   = A0;    // OPA350 output
 
-// =========================
-// ACQUISITION CONFIG
-// =========================
 const int N_AVG = 100;       // ADC averaging
 const int T_US  = 300;       // LED settle time (µs)
 
-// =========================
-// TIMING
-// =========================
-const unsigned long ACQ_TIME_MS    = 5000;   // total run time
-const unsigned long SAMPLE_DELAY  = 100;    // sample period
+const unsigned long ACQ_TIME_MS  = 5000; // measurement duration
+const unsigned long SAMPLE_DELAY  = 100; // sample period
+
 unsigned long runStartMillis = 0;
 unsigned long lastSampleMillis = 0;
 
-// =========================
-// STATE
-// =========================
-bool acquisitionActive = true;
+bool acquisitionActive = false; // initially off
+String cmd; // last received serial command
 
 // =========================
 // SETUP
@@ -31,11 +24,8 @@ void setup() {
   digitalWrite(pin_ledIR, LOW);
 
   Serial.begin(9600);
-  delay(1000);
 
-  // CSV header
-  Serial.println("time_ms,Voff,Von,Vdiff");
-
+  // header is only printed when a run starts
   runStartMillis = millis();
 }
 
@@ -43,35 +33,56 @@ void setup() {
 // LOOP
 // =========================
 void loop() {
+  // -------------------------
+  // SERIAL COMMANDS
+  // -------------------------
+  if (Serial.available()) {
+    cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    // Identification
+    if (cmd == "WHO") {
+      Serial.println("DEVICE:SENSOR");
+      return;
+    }
+
+    // START measurement
+    if (cmd == "START") {
+      acquisitionActive = true;
+      runStartMillis    = millis();
+      lastSampleMillis  = runStartMillis;
+      Serial.println("time_ms,Voff,Von,Vdiff");
+    }
+
+    // STOP measurement
+    if (cmd == "STOP") {
+      acquisitionActive = false;
+      digitalWrite(pin_ledIR, LOW);
+      return;
+    }
+  }
 
   if (!acquisitionActive) return;
 
   unsigned long now = millis();
 
-  // -------------------------
-  // AUTO STOP
-  // -------------------------
+  // Auto-stop
   if (now - runStartMillis >= ACQ_TIME_MS) {
     acquisitionActive = false;
     digitalWrite(pin_ledIR, LOW);
     return;
   }
 
-  // -------------------------
-  // SAMPLE TIMING
-  // -------------------------
+  // Sample timing
   if (now - lastSampleMillis < SAMPLE_DELAY) return;
   lastSampleMillis = now;
 
-  // -------------------------
-  // ACQUISITION
-  // -------------------------
+  // Acquisition averaging
   long sumOff  = 0;
   long sumOn   = 0;
   long sumDiff = 0;
 
   for (int i = 0; i < N_AVG; i++) {
-
     digitalWrite(pin_ledIR, LOW);
     delayMicroseconds(T_US);
     int off = analogRead(pin_adc);
@@ -85,20 +96,14 @@ void loop() {
     sumDiff += (on - off);
   }
 
-  // -------------------------
-  // CONVERSION
-  // -------------------------
+  // Convert to voltage
   const double ADC_TO_V = 5.0 / 1023.0;
-
   double Voff  = (sumOff  / (double)N_AVG) * ADC_TO_V;
   double Von   = (sumOn   / (double)N_AVG) * ADC_TO_V;
   double Vdiff = (sumDiff / (double)N_AVG) * ADC_TO_V;
 
-  // -------------------------
-  // OUTPUT CSV
-  // -------------------------
+  // Output CSV
   unsigned long t = now - runStartMillis;
-
   Serial.print(t);
   Serial.print(",");
   Serial.print(Voff, 6);
