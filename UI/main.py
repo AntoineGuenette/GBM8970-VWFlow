@@ -1,3 +1,4 @@
+import argparse
 import time
 import serial
 import serial.tools.list_ports
@@ -7,15 +8,34 @@ from tkinter import ttk
 from stirrer_tab import StirrerUI
 from sensor_tab import SensorUI
 
-def identify_arduinos(ports, baud=9600):
-    import time
+def parse_args():
+    # Parse command-line arguments for simulation modes
+    parser = argparse.ArgumentParser(description="GBM8970 – VWFlow controller")
 
-    stirrer_port = None
-    sensor_port = None
+    parser.add_argument(
+        "--simulate-stirrer",
+        action="store_true",
+        help="Run the stirrer in simulation mode"
+    )
+
+    parser.add_argument(
+        "--simulate-sensor",
+        action="store_true",
+        help="Run the sensor in simulation mode"
+    )
+
+    return parser.parse_args()
+
+def identify_arduinos(ports, baud=9600, stirrer_simulation=False, sensor_simulation=False):
+
+    stirrer_port = None if not stirrer_simulation else "SIMULATION"
+    sensor_port = None if not sensor_simulation else "SIMULATION"
 
     print("Identifying Arduinos...")
 
     for p in ports:
+        if stirrer_simulation and sensor_simulation:
+            break
         try:
             print(f"\nTesting {p.device}...")
             ser = serial.Serial(p.device, baud, timeout=0.5)
@@ -33,10 +53,15 @@ def identify_arduinos(ports, baud=9600):
                 if not line:
                     continue
 
-                if line == "DEVICE:STIRRER":
+                if line == "DEVICE:STIRRER" and not stirrer_simulation:
                     stirrer_port = p.device
-                elif line == "DEVICE:SENSOR":
+                elif line == "DEVICE:SENSOR" and not sensor_simulation:
                     sensor_port = p.device
+
+                if stirrer_simulation :
+                    stirrer_port = "SIMULATION"
+                if sensor_simulation:
+                    sensor_port = "SIMULATION"
 
             ser.close()
         except Exception as e:
@@ -49,17 +74,29 @@ def identify_arduinos(ports, baud=9600):
 
 def main():
 
+    args = parse_args()
+
+    global STIRRER_SIMULATION, SENSOR_SIMULATION
+    STIRRER_SIMULATION = args.simulate_stirrer
+    SENSOR_SIMULATION  = args.simulate_sensor
+
     BAUD = 9600
 
     ports = list(serial.tools.list_ports.comports())
 
-    STIRRER_PORT, SENSOR_PORT = identify_arduinos(ports, BAUD)
+    STIRRER_PORT, SENSOR_PORT = identify_arduinos(
+        ports,
+        BAUD,
+        stirrer_simulation=STIRRER_SIMULATION,
+        sensor_simulation=SENSOR_SIMULATION
+    )
 
-    if STIRRER_PORT is None or SENSOR_PORT is None:
-        raise RuntimeError("Could not identify both Arduinos")
+    if (not STIRRER_SIMULATION and STIRRER_PORT is None) or \
+       (not SENSOR_SIMULATION and SENSOR_PORT is None):
+        raise RuntimeError("Could not identify required Arduinos")
 
-    ser_stirrer = serial.Serial(STIRRER_PORT, BAUD, timeout=2)
-    ser_sensor  = serial.Serial(SENSOR_PORT, BAUD, timeout=2)
+    ser_stirrer = None if STIRRER_SIMULATION else serial.Serial(STIRRER_PORT, BAUD, timeout=2)
+    ser_sensor  = None if SENSOR_SIMULATION else serial.Serial(SENSOR_PORT, BAUD, timeout=2)
 
     # Initialize UI
     root = tk.Tk()
@@ -73,12 +110,12 @@ def main():
     # Create stirrer tab
     stirrer_frame = ttk.Frame(notebook)
     notebook.add(stirrer_frame, text="Stirrer")
-    stirrer_ui = StirrerUI(stirrer_frame, ser_stirrer)
+    stirrer_ui = StirrerUI(stirrer_frame, ser_stirrer, simulation_mode=STIRRER_SIMULATION)
 
     # Create sensor tab
     sensor_frame = ttk.Frame(notebook)
     notebook.add(sensor_frame, text="Sensor")
-    sensor_ui  = SensorUI(sensor_frame, ser_sensor)
+    sensor_ui  = SensorUI(sensor_frame, ser_sensor, simulation_mode=SENSOR_SIMULATION)
 
     # Handle window close event
     def on_close():

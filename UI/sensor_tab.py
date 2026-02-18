@@ -1,8 +1,6 @@
 import os
 import time
 import tkinter as tk
-import serial
-import serial.tools.list_ports
 import pandas as pd
 import numpy as np
 
@@ -22,26 +20,13 @@ V0_PATH = os.path.join(SCRIPT_DIR, "..", "data", V0_FILE)
 
 CONTROL_POINTS = np.array(
     [ # (Turbidity, VWF activity) pairs for the calibration curve
-        (3.2, 100), # Temporary turbidity value
-        (4.4, 75), # Temporary turbidity value
-        (5.9, 50), # Temporary turbidity value
-        (7.1, 25), # Temporary turbidity value
-        (8.2, 0) # Add a point for 0% activity (optional, but can help with extrapolation)
+        (0.45, 100), # Temporary turbidity value
+        (1.2, 75), # Temporary turbidity value
+        (1.95, 50), # Temporary turbidity value
+        (2.7, 25), # Temporary turbidity value
+        (3.25, 0) # Add a point for 0% activity (optional, but can help with extrapolation)
     ]
 )
-
-SIMULATION_MODE = False   # True = simulate the Arduino
-
-# =========================
-# SERIAL
-# =========================
-def find_arduino_port():
-    for p in serial.tools.list_ports.comports():
-        if ("usbmodem" in p.device.lower() or
-            "usbserial" in p.device.lower() or
-            "arduino" in p.description.lower()):
-            return p.device
-    return None
 
 # =========================
 # TURBIDITY -> VWF ACTIVITY CONVERSION
@@ -55,26 +40,33 @@ def turb_to_vwf_activity(turbidity: float) -> float:
 # UI
 # =========================
 class SensorUI:
-    def __init__(self, parent, ser=None):
+    def __init__(self, parent, ser=None, simulation_mode=False):
         # Initialize tab UI
         self.root = parent
         self.ser = ser
-        self.port = ser.port
+        self.simulation_mode = simulation_mode
 
         # Status variables
-        self.V0_text = tk.StringVar(value=f"Preivously measured V0: {self.read_V0():.3f}\n")
+        try:
+            v0 = self.read_V0()
+            self.V0_text = tk.StringVar(value=f"Preivously measured V0: {v0:.3f}\n")
+        except Exception:
+            self.V0_text = tk.StringVar(value="Preivously measured V0: ---\n")
+
+        self.V_text = tk.StringVar(value="Mean Vdiff: --- V\n")
         self.mean_turb_text = tk.StringVar(value="Mean turbidity: ---")
         self.std_turb_text = tk.StringVar(value="Std deviation: ---\n")
         self.activity_text = tk.StringVar(value="---\n")
 
         # Initialize serial connection
-        if SIMULATION_MODE:
-            self.ser = None
+        if simulation_mode:
             self.port = "SIMULATION (UI only)"
         else:
-            if self.port is None:
+            if self.ser is None:
                 messagebox.showerror("Serial error", "No Arduino detected.")
                 raise SystemExit
+            self.port = self.ser.port
+
         self.status_text = tk.StringVar(value=f"Connected to {self.port}")
 
         # Build the UI
@@ -96,6 +88,8 @@ class SensorUI:
         # Measurement button
         tk.Button(left, text="Measure", width=15,
                   command=self.measure).pack(pady=2)
+        tk.Label(left, textvariable=self.V_text,
+                 font=("Helvetica", 12)).pack(pady=2)
         tk.Label(left, textvariable=self.mean_turb_text,
                  font=("Helvetica", 12)).pack(pady=2)
         tk.Label(left, textvariable=self.std_turb_text,
@@ -127,9 +121,6 @@ class SensorUI:
         self.ax_cal.set_ylabel("VWF Activity (%)")
         self.ax_cal.grid(True)
 
-        self.line_full, = self.ax_turb.plot([], [], lw=2)
-        self.line_zoom, = self.ax_cal.plot([], [], lw=2)
-
         # Graph widget
         canvas = FigureCanvasTkAgg(self.fig, master=self.root)
         canvas.get_tk_widget().pack(side=tk.RIGHT,
@@ -146,6 +137,23 @@ class SensorUI:
             raise RuntimeError("Not calibrated")
     
     def acquire_data(self, duration_s=ACQ_DURATION_S):
+        # Generate synthetic data in simulation mode
+        if self.simulation_mode:
+            t = np.linspace(0, duration_s, int(duration_s * 50))
+            v0 = 1.0
+            noise = np.random.normal(0, 0.02, size=len(t))
+            vdiff = v0 - 0.15 + noise
+
+            df = pd.DataFrame({
+                "time_ms": t * 1000,
+                "Voff": np.zeros_like(t),
+                "Von": np.zeros_like(t),
+                "Vdiff": vdiff
+            })
+            df["time_s"] = t
+            return df
+
+        # Real acquisition mode
         ser = self.ser
         time.sleep(0.1)
 
@@ -168,14 +176,15 @@ class SensorUI:
         df["time_s"] = df["time_ms"] / 1000.0
         return df
 
-
     def calibrate(self):
         try:
-            self.ser.write(b"START\n")
+            if not self.simulation_mode:
+                self.ser.write(b"START\n")
 
             df = self.acquire_data()
             V0 = df["Vdiff"].mean()
 
+            os.makedirs(os.path.dirname(V0_PATH), exist_ok=True)
             with open(V0_PATH, "w") as f:
                 f.write(f"{V0}\n")
 
@@ -184,14 +193,14 @@ class SensorUI:
         except Exception as e:
             messagebox.showerror("Calibration error",
                                  f"Calibration failed:\n{e}")
-            return
 
     def measure(self):
-        try :
+        try:
             if not os.path.exists(V0_PATH):
                 raise RuntimeError("Calibration required")
 
-            self.ser.write(b"START\n")
+            if not self.simulation_mode:
+                self.ser.write(b"START\n")
 
             # Read V0 from file
             V0 = self.read_V0()
@@ -201,18 +210,26 @@ class SensorUI:
             df["turbidity_percent"] = (V0 - df["Vdiff"]) / V0 * 100.0
 
             # Show turbidity stats
+            mean_V = df["Vdiff"].mean()
             mean_turb = df["turbidity_percent"].mean()
             std_turb  = df["turbidity_percent"].std()
+
+            self.V_text.set(f"Mean Vdiff: {mean_V:.3f} V\n")
             self.mean_turb_text.set(f"Mean turbidity: {mean_turb:.2f} %")
             self.std_turb_text.set(f"Std deviation: {std_turb:.2f} %\n")
 
             # Update turbidity plot
             self.ax_turb.clear()
             self.ax_turb.plot(df["time_s"], df["turbidity_percent"])
-            self.ax_turb.hlines([mean_turb], xmin=df["time_s"].min(),xmax=df["time_s"].max(),
-                                color="red", linestyle="--", label=f"Mean: {mean_turb:.2f}%")
+            self.ax_turb.hlines(
+                [mean_turb],
+                xmin=df["time_s"].min(),
+                xmax=df["time_s"].max(),
+                color="red",
+                linestyle="--",
+                label=f"Mean: {mean_turb:.2f}%"
+            )
             self.ax_turb.set_xlabel("Time (s)")
-            self.ax_turb.set_xlim(df["time_s"].min(), df["time_s"].max())
             self.ax_turb.set_ylabel("Relative turbidity (%)")
             self.ax_turb.set_title("Turbidity measurement")
             self.ax_turb.grid(True)
@@ -224,14 +241,15 @@ class SensorUI:
             max_activity = turb_to_vwf_activity(mean_turb - std_turb)
             min_activity = turb_to_vwf_activity(mean_turb + std_turb)
             std_activity = (max_activity - min_activity) / 2
+
             self.activity_text.set(f"({activity:.2f} ± {std_activity:.2f}) %\n")
 
             # Update calibration curve plot
-            x_vals = np.linspace(0, CONTROL_POINTS[:, 0].max() + 0.5, 100)
+            x_vals = np.linspace(0, CONTROL_POINTS[:, 0].max() + 0.1, 100)
             y_vals = m * x_vals + b
 
             self.ax_cal.clear()
-            self.ax_cal.plot(x_vals, y_vals, color="black",linestyle="--",
+            self.ax_cal.plot(x_vals, y_vals, color="black", linestyle="--",
                              label="Calibration Curve")
             self.ax_cal.scatter(
                 CONTROL_POINTS[:, 0], CONTROL_POINTS[:, 1],
@@ -250,7 +268,6 @@ class SensorUI:
                 label=f"Measured Point ({activity:.2f}% ± {std_activity:.2f}%)"
             )
             self.ax_cal.set_xlabel("Relative turbidity (%)")
-            self.ax_cal.set_xlim(0, CONTROL_POINTS[:, 0].max() + 0.5)
             self.ax_cal.set_ylabel("VWF Activity (%)")
             self.ax_cal.set_ylim(0, 200)
             self.ax_cal.set_title("VWF Activity vs Turbidity Calibration Curve")

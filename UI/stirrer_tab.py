@@ -1,5 +1,3 @@
-import serial
-import serial.tools.list_ports
 import threading
 import tkinter as tk
 import time
@@ -28,8 +26,6 @@ SIMULATION_POINTS = [ # (RPM, SHEAR) pairs for linear interpolation
 
 PLOT_WINDOW_SEC = 10
 PLOT_REFRESH_MS = 100
-
-SIMULATION_MODE = False # True = simulate the Arduino
 
 # =========================
 # SERIAL
@@ -69,10 +65,12 @@ def shear_to_rpm(gamma):
 # UI
 # =========================
 class StirrerUI:
-    def __init__(self, parent, ser):
+    def __init__(self, parent, ser=None, simulation_mode=False):
         # Initialize tab UI
         self.root = parent
         self.ser = ser
+        self.simulation_mode = simulation_mode
+        self.port = "SIMULATION (UI only)" if simulation_mode else ser.port if ser is not None else None
 
         # Initialize data buffers and state
         self.start_time = time.time()
@@ -92,21 +90,7 @@ class StirrerUI:
         self.pwm_text = tk.StringVar(value="PWM: ---\n")
         self.runtime_var = tk.IntVar(value=0)
         self.time_left_text = tk.StringVar(value="Time left: ∞")
-
-        # Initialize serial connection
-        if not SIMULATION_MODE:
-            self.port = self.ser.port
-            self.status_text = tk.StringVar(value=f"Connected to {self.port}")
-
-            # Turn on streaming at startup
-            try:
-                self.ser.write(b"STREAM ON\n")
-            except Exception:
-                pass
-        else:
-            self.ser = None
-            self.port = "SIMULATION UI only"
-            self.status_text = tk.StringVar(value=self.port)
+        self.status_text = tk.StringVar(value=f"Connected to {self.port}")
 
         # Build the UI
         self._build_ui()
@@ -114,7 +98,7 @@ class StirrerUI:
         self.update_plot()
 
         # Start serial reader thread
-        if not SIMULATION_MODE:
+        if not simulation_mode:
             threading.Thread(target=self.serial_reader, daemon=True).start()
 
     # ================= UI =================
@@ -221,18 +205,18 @@ class StirrerUI:
         self.previous_mode = self.control_mode.get()
 
     def apply_target(self):
-        if SIMULATION_MODE:
+        if self.simulation_mode:
             return
         if self.control_mode.get() == "RPM":
             rpm = int(self.target_var.get())
         else:
             rpm = int(shear_to_rpm(self.target_var.get()))
         rpm = max(RPM_MIN, min(RPM_MAX, rpm))
-        if not SIMULATION_MODE and self.ser is not None:
+        if not self.simulation_mode and self.ser is not None:
             self.ser.write(f"S {rpm}\n".encode())
 
     def start_motor(self):
-        if not SIMULATION_MODE and self.ser is not None:
+        if not self.simulation_mode and self.ser is not None:
             try:
                 self.ser.write(b"STREAM ON\n")
                 self.ser.write(b"START\n")
@@ -240,11 +224,11 @@ class StirrerUI:
                 pass
 
     def stop_motor(self):
-        if not SIMULATION_MODE and self.ser is not None:
+        if not self.simulation_mode and self.ser is not None:
             self.ser.write(b"STOP\n")
 
     def apply_runtime(self):
-        if not SIMULATION_MODE and self.ser is not None:
+        if not self.simulation_mode and self.ser is not None:
             self.ser.write(f"T {self.runtime_var.get()}\n".encode())
 
     def serial_reader(self):
@@ -296,7 +280,7 @@ class StirrerUI:
         self.root.after(PLOT_REFRESH_MS, self.update_plot)
 
     def on_close(self):
-        if not SIMULATION_MODE:
+        if not self.simulation_mode:
             try:
                 self.ser.write(b"STREAM OFF\n")
                 self.ser.write(b"STOP\n")
