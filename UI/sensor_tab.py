@@ -278,3 +278,7 @@ class SensorUI:
         except Exception as e:
             messagebox.showerror("Measurement error",
                                  f"Measurement failed:\n{e}")
+            
+    def on_close(self):
+        if self.ser and self.ser.is_open:
+            self.ser.close()

@@ -34,9 +34,11 @@ def identify_arduinos(ports, baud=9600, stirrer_simulation=False, sensor_simulat
     print("Identifying Arduinos...")
 
     for p in ports:
+
         if stirrer_simulation and sensor_simulation:
             break
         try:
+            
             print(f"\nTesting {p.device}...")
             ser = serial.Serial(p.device, baud, timeout=0.5)
             time.sleep(1)  # allow Arduino reset
@@ -49,14 +51,15 @@ def identify_arduinos(ports, baud=9600, stirrer_simulation=False, sensor_simulat
             t0 = time.time()
             while time.time() - t0 < 1:
                 line = ser.readline().decode(errors="ignore").strip()
-                print(f"{p.device} → '{line}'")
                 if not line:
                     continue
 
                 if line == "DEVICE:STIRRER" and not stirrer_simulation:
                     stirrer_port = p.device
+                    print(f"Identified stirrer on {stirrer_port}")
                 elif line == "DEVICE:SENSOR" and not sensor_simulation:
                     sensor_port = p.device
+                    print(f"Identified sensor on {sensor_port}")
 
                 if stirrer_simulation :
                     stirrer_port = "SIMULATION"
@@ -64,37 +67,38 @@ def identify_arduinos(ports, baud=9600, stirrer_simulation=False, sensor_simulat
                     sensor_port = "SIMULATION"
 
             ser.close()
+
         except Exception as e:
             print("Error on", p.device, e)
 
-    print(f"\nIdentified stirrer on {stirrer_port}, sensor on {sensor_port}")
+    print(f"\nFound stirrer on {stirrer_port} and sensor on {sensor_port}")
+    
     print("\nLaunching UI...")
     return stirrer_port, sensor_port
 
 
 def main():
 
+    # Parse command-line arguments
     args = parse_args()
 
+    # Set global simulation flags
     global STIRRER_SIMULATION, SENSOR_SIMULATION
     STIRRER_SIMULATION = args.simulate_stirrer
     SENSOR_SIMULATION  = args.simulate_sensor
 
+    # Identify Arduinos and open serial connections
     BAUD = 9600
-
     ports = list(serial.tools.list_ports.comports())
-
     STIRRER_PORT, SENSOR_PORT = identify_arduinos(
         ports,
         BAUD,
         stirrer_simulation=STIRRER_SIMULATION,
         sensor_simulation=SENSOR_SIMULATION
     )
-
     if (not STIRRER_SIMULATION and STIRRER_PORT is None) or \
        (not SENSOR_SIMULATION and SENSOR_PORT is None):
         raise RuntimeError("Could not identify required Arduinos")
-
     ser_stirrer = None if STIRRER_SIMULATION else serial.Serial(STIRRER_PORT, BAUD, timeout=2)
     ser_sensor  = None if SENSOR_SIMULATION else serial.Serial(SENSOR_PORT, BAUD, timeout=2)
 
@@ -120,7 +124,9 @@ def main():
     # Handle window close event
     def on_close():
         stirrer_ui.on_close()
+        sensor_ui.on_close()
         root.destroy()
+        print("\nApplication closed with success.")
     root.protocol("WM_DELETE_WINDOW", on_close)
 
     # Start the main event loop
