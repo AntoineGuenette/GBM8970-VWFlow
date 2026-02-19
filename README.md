@@ -26,7 +26,7 @@ cd GBM8970-VWFlow
 ```
 Verify you're in the correct directory by checking for the required files:
 ```bash
-ls -la
+ls
 ```
 You should see the `UI`, `data` and `src` folders.
 
