@@ -1,12 +1,53 @@
 # GBM8970-VWFlow
 
-von Willebrand factor (VWF) is a multimeric glycoprotein essential to primary hemostasis. Under high shear forces—such as those generated during vascular injury—VWF unravels and exposes its A1 domains, enabling platelet binding through GPIb receptors. This mechanism, known as shear-induced platelet aggregation (SIPA), initiates platelet aggregation and clot formation.
+This repository contains the software used to run the graphical user interface (UI) that controls a custom **2-in-1 aggregometer and turbidimetry sensor**, designed to measure **von Willebrand Factor (VWF) activity**.
 
-However, current clinical tests measure VWF activity under static conditions, which do not reproduce the physiological shear required for proper VWF activation. This limitation can reduce diagnostic accuracy.
+The UI can be launched either with the real hardware connected or in simulation mode for development and testing.
 
-This project aims to design a microfluidic device capable of measuring VWF activity under dynamic shear conditions, providing a more faithful representation of SIPA. The device receives a small volume of platelet-poor plasma (PPP) mixed with lyophilized platelets or latex beads coated with platelet receptors, applies controlled shear via magnetic agitation, and quantifies aggregation optically. The software in this repository then converts the aggregation signal into a semi-automated estimate of VWF activity.
+---
 
-This repository contains:
-- firmware for the microcontroller controlling magnetic agitation and shear generation;
-- data processing code converting optical aggregation signals into VWF activity measurements;
-- Python scripts for simulations, modeling, and analysis.
+## Repository Structure
+
+After cloning the repository, you should see the following main directories:
+
+- `UI/` – User interface source code  
+- `src/` – Core logic and hardware interfaces  
+- `data/` – Data files generated or used by the application  
+
+---
+
+## Launching the UI
+
+### Step 1 – Clone the repository
+```bash
+cd <path/to/repository>
+git clone https://github.com/AntoineGuenette/GBM8970-VWFlow
+cd GBM8970-VWFlow
+```
+Verify you're in the correct directory by checking for the required files:
+```bash
+ls -la
+```
+You should see the `UI`, `data` and `src` folders.
+
+### Step 2 - Run the UI
+To launch the UI with all hardware connected:
+```bash
+python UI/main.py
+```
+
+## Simulation modes
+For development or testing without physical hardware, the UI can be launched in simulation mode.
+
+### Simulate the stirrer only
+```bash
+python UI/main.py --simulate-stirrer
+```
+### Simulate the sensor only
+```bash
+python UI/main.py --simulate-sensor
+```
+### Simulate all hardware
+```bash
+python UI/main.py --simulate-stirrer --simulate-sensor
+```
