@@ -48,6 +48,7 @@ class ImageUI:
         self.activity_text = tk.StringVar(value="---\n")
 
         self.debug_mode = tk.BooleanVar(value=False)
+        self.min_val_var = tk.DoubleVar(value=15)
 
         # Images
         self.im1 = np.zeros((100, 100))
@@ -105,6 +106,19 @@ class ImageUI:
             anchor="w"
         ).pack(pady=2)
         
+        # Min value slider
+        tk.Label(left, text="Histogram min value").pack(pady=(10,2))
+        tk.Scale(
+            left,
+            from_=0,
+            to=50,
+            orient=tk.HORIZONTAL,
+            resolution=1,
+            variable=self.min_val_var,
+            command=lambda _ : self.update_histogram_preview(),
+            length=150
+        ).pack(pady=2)
+
         # Measurement buttons
         tk.Checkbutton(
             left,
@@ -257,7 +271,7 @@ class ImageUI:
             img_corrected = img_f / (bkgrd_norm + epsilon)
             return img_corrected.astype(np.uint8)
 
-        # Apply correction to already displayed images (preserve titles)
+        # Apply correction to already displayed images
         axes_images = [
             (self.ax_im1, "Non activated platelets (1)", "im1"),
             (self.ax_im2, "Non activated platelets (2)", "im2"),
@@ -277,6 +291,80 @@ class ImageUI:
 
             ax.clear()
             ax.imshow(corrected, cmap="gray")
+            ax.set_title(title)
+            ax.axis("off")
+
+        self.canvas.draw_idle()
+
+    def preprocess_image(self, file_path: str, bkgrd_img_path: str):
+        """
+        Runs the exact same preprocessing pipeline used in count_platelets
+        up to the normalized image stage so the UI preview matches DEBUG.
+        Returns: img, img_corrected, img_norm
+        """
+        img = cv2.imread(str(file_path), cv2.IMREAD_GRAYSCALE)
+        bkgrd = cv2.imread(bkgrd_img_path, cv2.IMREAD_GRAYSCALE)
+
+        img = img.astype(np.float32)
+        bkgrd = bkgrd.astype(np.float32)
+
+        # Blur and normalize background
+        bkgrd_smooth = cv2.GaussianBlur(bkgrd, (51, 51), 0)
+        epsilon = 1e-6
+        bkgrd_mean = np.mean(bkgrd_smooth)
+        bkgrd_norm = bkgrd_smooth / (bkgrd_mean + epsilon)
+
+        # Background correction
+        img_corrected = img / (bkgrd_norm + epsilon)
+        img_corrected = img_corrected.astype(np.uint8)
+
+        # Histogram normalization
+        dimensions = img_corrected.shape
+        number_of_pixels = dimensions[0] * dimensions[1]
+        min_val = float(self.min_val_var.get())
+
+        hist, _ = np.histogram(img_corrected, bins=256, range=(min_val, 255))
+        normalized_cumulative_histogram = np.cumsum(hist) / number_of_pixels
+
+        img_norm = 255 * normalized_cumulative_histogram[img_corrected]
+        img_norm = img_norm.astype(np.uint8)
+
+        return img, img_corrected, img_norm
+
+    def update_histogram_preview(self):
+        """
+        Recompute histogram normalization preview for the displayed images
+        using the current slider value.
+        """
+        if not self.selected_background_path:
+            return
+
+        axes_images = [
+            (self.ax_im1, "Non activated platelets (1)", "im1"),
+            (self.ax_im2, "Non activated platelets (2)", "im2"),
+            (self.ax_im3, "Non activated platelets (3)", "im3"),
+            (self.ax_im4, "Activated platelets (1)", "im4"),
+            (self.ax_im5, "Activated platelets (2)", "im5"),
+            (self.ax_im6, "Activated platelets (3)", "im6"),
+        ]
+
+        paths = (
+            self.selected_stat_image_paths + self.selected_act_image_paths
+        )
+
+        for (ax, title, attr), path in zip(axes_images, paths):
+            if not path:
+                continue
+
+            img, img_corrected, img_norm = self.preprocess_image(
+                path,
+                self.selected_background_path
+            )
+
+            setattr(self, attr, img_norm)
+
+            ax.clear()
+            ax.imshow(img_norm, cmap="gray")
             ax.set_title(title)
             ax.axis("off")
 
@@ -341,14 +429,17 @@ Activated platelet count : {act_mean_count:.1f} ± {act_std_count:.1f}
 Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         )
 
-        # Update images
+        # Update images (use ORIGINAL images as background)
+        stat_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_stat_image_paths]
+        act_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_act_image_paths]
+
         axes_images = [
-            (self.ax_im1, self.im1, stat_overlays[0], f"{stat_counts[0]} platelets"),
-            (self.ax_im2, self.im2, stat_overlays[1], f"{stat_counts[1]} platelets"),
-            (self.ax_im3, self.im3, stat_overlays[2], f"{stat_counts[2]} platelets"),
-            (self.ax_im4, self.im4, act_overlays[0], f"{act_counts[0]} platelets"),
-            (self.ax_im5, self.im5, act_overlays[1], f"{act_counts[1]} platelets"),
-            (self.ax_im6, self.im6, act_overlays[2], f"{act_counts[2]} platelets"),
+            (self.ax_im1, stat_originals[0], stat_overlays[0], f"{stat_counts[0]} platelets"),
+            (self.ax_im2, stat_originals[1], stat_overlays[1], f"{stat_counts[1]} platelets"),
+            (self.ax_im3, stat_originals[2], stat_overlays[2], f"{stat_counts[2]} platelets"),
+            (self.ax_im4, act_originals[0], act_overlays[0], f"{act_counts[0]} platelets"),
+            (self.ax_im5, act_originals[1], act_overlays[1], f"{act_counts[1]} platelets"),
+            (self.ax_im6, act_originals[2], act_overlays[2], f"{act_counts[2]} platelets"),
         ]
 
         for ax, base_img, overlay, title in axes_images:
@@ -404,31 +495,10 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         file_name = os.path.basename(file_path)
         debug_file_path = os.path.join(file_dir, f"DEBUG_{file_name}")
 
-        # Open images
-        img = cv2.imread(str(file_path), cv2.IMREAD_GRAYSCALE)
-        bkgrd = cv2.imread(bkgrd_img_path, cv2.IMREAD_GRAYSCALE)
-
-        # Convert images to float32
-        img = img.astype(np.float32)
-        bkgrd = bkgrd.astype(np.float32)
-
-        # Blur and normalize the background
-        bkgrd_smooth = cv2.GaussianBlur(bkgrd, (51, 51), 0)
-        epsilon = 1e-6
-        bkgrd_mean = np.mean(bkgrd_smooth)
-        bkgrd_norm = bkgrd_smooth / (bkgrd_mean + epsilon)
-
-        # Correct the image by removing the background gray levels
-        img_corrected = img / (bkgrd_norm + epsilon)
-        img_corrected = img_corrected.astype(np.uint8)
-
-        # Normalize the image histogram
-        dimensions = img_corrected.shape
-        number_of_pixels = dimensions[0] * dimensions[1]
-        hist, _ = np.histogram(img_corrected, bins=256, range=(15, 255))
-        normalized_cumulative_histogram = np.cumsum(hist) / number_of_pixels
-        img_norm = 255 * normalized_cumulative_histogram[img_corrected]
-        img_norm = img_norm.astype(np.uint8)
+        img, img_corrected, img_norm = self.preprocess_image(
+            file_path,
+            bkgrd_img_path
+        )
 
         # Binarize the image with OTSU thresholding
         _, binary = cv2.threshold(
