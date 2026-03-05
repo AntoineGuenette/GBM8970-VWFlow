@@ -16,10 +16,10 @@ from matplotlib.figure import Figure
 # =========================
 CONTROL_POINTS = np.array(
     [ # (Number of platelets, VWF activity) pairs for the calibration curve
-        (90, 100), # Temporary value
-        (60, 75), # Temporary value
-        (35, 50), # Temporary value
-        (10, 25), # Temporary value
+        (50, 100), # Temporary value
+        (36, 75), # Temporary value
+        (22, 50), # Temporary value
+        (8, 25), # Temporary value
         (0, 0)
     ]
 )
@@ -182,20 +182,21 @@ class ImageUI:
         self.stat_img_text.set(display_text)
 
         # Update images
-        self.im1 = cv2.imread(paths[0], cv2.IMREAD_GRAYSCALE)
-        self.ax_im1.imshow(self.im1, cmap="gray")
-        self.ax_im1.set_title("Non activated platelets (1)")
+        axes_images = [
+            (self.ax_im1, "Non activated platelets (1)", "im1", paths[0]),
+            (self.ax_im2, "Non activated platelets (2)", "im2", paths[1]),
+            (self.ax_im3, "Non activated platelets (3)", "im3", paths[2]),
+        ]
 
-        self.im2 = cv2.imread(paths[1], cv2.IMREAD_GRAYSCALE)
-        self.ax_im2.imshow(self.im2, cmap="gray")
-        self.ax_im2.set_title("Non activated platelets (2)")
-        
-        self.im3 = cv2.imread(paths[2], cv2.IMREAD_GRAYSCALE)
-        self.ax_im3.imshow(self.im3, cmap="gray")
-        self.ax_im3.set_title("Non activated platelets (3)")
+        for ax, title, attr, path in axes_images:
+            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            setattr(self, attr, img)
 
-        for ax in (self.ax_im1, self.ax_im2, self.ax_im3):
+            ax.clear()
+            ax.imshow(img, cmap="gray")
+            ax.set_title(title)
             ax.axis("off")
+
         self.canvas.draw_idle()
     
     def open_act_images(self):
@@ -211,23 +212,21 @@ class ImageUI:
         self.act_img_text.set(display_text)
 
         # Update images
-        self.ax_im4.clear()
-        self.im4 = cv2.imread(paths[0], cv2.IMREAD_GRAYSCALE)
-        self.ax_im4.imshow(self.im4, cmap="gray")
-        self.ax_im4.set_title("Activated platelets (1)")
+        axes_images = [
+            (self.ax_im4, "Activated platelets (1)", "im4", paths[0]),
+            (self.ax_im5, "Activated platelets (2)", "im5", paths[1]),
+            (self.ax_im6, "Activated platelets (3)", "im6", paths[2]),
+        ]
 
-        self.ax_im5.clear()
-        self.im5 = cv2.imread(paths[1], cv2.IMREAD_GRAYSCALE)
-        self.ax_im5.imshow(self.im5, cmap="gray")
-        self.ax_im5.set_title("Activated platelets (2)")
-    
-        self.ax_im6.clear()
-        self.im6 = cv2.imread(paths[2], cv2.IMREAD_GRAYSCALE)
-        self.ax_im6.imshow(self.im6, cmap="gray")
-        self.ax_im6.set_title("Activated platelets (3)")
+        for ax, title, attr, path in axes_images:
+            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            setattr(self, attr, img)
 
-        for ax in (self.ax_im4, self.ax_im5, self.ax_im6):
+            ax.clear()
+            ax.imshow(img, cmap="gray")
+            ax.set_title(title)
             ax.axis("off")
+
         self.canvas.draw_idle()
     
     def open_background_image(self):
@@ -237,7 +236,51 @@ class ImageUI:
         )
         self.selected_background_path = path
         shortened = self._shorten_path(path)
-        self.bckgrd_img_text.set(f"Selected background image:\n{shortened}")
+        self.bckgrd_img_text.set(f"Selected image:\n{shortened}")
+
+        # If images are already loaded, apply background correction
+        bkgrd = cv2.imread(self.selected_background_path, cv2.IMREAD_GRAYSCALE)
+        if bkgrd is None:
+            print("Could not read background image.")
+            return
+
+        bkgrd = bkgrd.astype(np.float32)
+        bkgrd_smooth = cv2.GaussianBlur(bkgrd, (51, 51), 0)
+        epsilon = 1e-6
+        bkgrd_mean = np.mean(bkgrd_smooth)
+        bkgrd_norm = bkgrd_smooth / (bkgrd_mean + epsilon)
+
+        def correct_image(img):
+            if img is None or img.size == 0:
+                return img
+            img_f = img.astype(np.float32)
+            img_corrected = img_f / (bkgrd_norm + epsilon)
+            return img_corrected.astype(np.uint8)
+
+        # Apply correction to already displayed images (preserve titles)
+        axes_images = [
+            (self.ax_im1, "Non activated platelets (1)", "im1"),
+            (self.ax_im2, "Non activated platelets (2)", "im2"),
+            (self.ax_im3, "Non activated platelets (3)", "im3"),
+            (self.ax_im4, "Activated platelets (1)", "im4"),
+            (self.ax_im5, "Activated platelets (2)", "im5"),
+            (self.ax_im6, "Activated platelets (3)", "im6"),
+        ]
+
+        for ax, title, attr in axes_images:
+            img = getattr(self, attr)
+            if img is None or img.size == 0:
+                continue
+
+            corrected = correct_image(img)
+            setattr(self, attr, corrected)
+
+            ax.clear()
+            ax.imshow(corrected, cmap="gray")
+            ax.set_title(title)
+            ax.axis("off")
+
+        self.canvas.draw_idle()
 
     def run_count_platelets(self):
         """
@@ -299,38 +342,20 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         )
 
         # Update images
-        self.ax_im1.clear()
-        self.ax_im1.imshow(self.im1, cmap="gray")
-        self.ax_im1.imshow(stat_overlays[0], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im1.set_title(f"{stat_counts[0]} platelets")
+        axes_images = [
+            (self.ax_im1, self.im1, stat_overlays[0], f"{stat_counts[0]} platelets"),
+            (self.ax_im2, self.im2, stat_overlays[1], f"{stat_counts[1]} platelets"),
+            (self.ax_im3, self.im3, stat_overlays[2], f"{stat_counts[2]} platelets"),
+            (self.ax_im4, self.im4, act_overlays[0], f"{act_counts[0]} platelets"),
+            (self.ax_im5, self.im5, act_overlays[1], f"{act_counts[1]} platelets"),
+            (self.ax_im6, self.im6, act_overlays[2], f"{act_counts[2]} platelets"),
+        ]
 
-        self.ax_im2.clear()
-        self.ax_im2.imshow(self.im2, cmap="gray")
-        self.ax_im2.imshow(stat_overlays[1], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im2.set_title(f"{stat_counts[1]} platelets")
-        
-        self.ax_im3.clear()
-        self.ax_im3.imshow(self.im3, cmap="gray")
-        self.ax_im3.imshow(stat_overlays[2], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im3.set_title(f"{stat_counts[2]} platelets")
-
-        self.ax_im4.clear()
-        self.ax_im4.imshow(self.im4, cmap="gray")
-        self.ax_im4.imshow(act_overlays[0], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im4.set_title(f"{act_counts[0]} platelets")
-
-        self.ax_im5.clear()
-        self.ax_im5.imshow(self.im5, cmap="gray")
-        self.ax_im5.imshow(act_overlays[1], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im5.set_title(f"{act_counts[1]} platelets")
-        
-        self.ax_im6.clear()
-        self.ax_im6.imshow(self.im6, cmap="gray")
-        self.ax_im6.imshow(act_overlays[2], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im6.set_title(f"{act_counts[2]} platelets")
-
-        for ax in (self.ax_im1, self.ax_im2, self.ax_im3,
-                   self.ax_im4, self.ax_im5, self.ax_im6):
+        for ax, base_img, overlay, title in axes_images:
+            ax.clear()
+            ax.imshow(base_img, cmap="gray")
+            ax.imshow(overlay, cmap="nipy_spectral", alpha=0.5)
+            ax.set_title(title)
             ax.axis("off")
 
         self.canvas.draw_idle()
@@ -364,7 +389,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
             capsize=5,
             label=f"Measured Point ({activity:.2f} ± {activity_std:.2f}%)"
         )
-        self.ax_cal.set_xlabel("Number of platelets")
+        self.ax_cal.set_xlabel("Platelet loss (%)")
         self.ax_cal.set_ylabel("VWF Activity (%)")
         self.ax_cal.set_xlim(0, 1.05 * CONTROL_POINTS[:, 0].max())
         self.ax_cal.set_ylim(0, 200)
