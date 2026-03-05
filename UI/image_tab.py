@@ -16,11 +16,11 @@ from matplotlib.figure import Figure
 # =========================
 CONTROL_POINTS = np.array(
     [ # (Number of platelets, VWF activity) pairs for the calibration curve
-        (60, 100), # Temporary value
-        (110, 75), # Temporary value
-        (180, 50), # Temporary value
-        (240, 25), # Temporary value
-        (300, 0) # Temporary value
+        (90, 100), # Temporary value
+        (60, 75), # Temporary value
+        (35, 50), # Temporary value
+        (10, 25), # Temporary value
+        (0, 0)
     ]
 )
 
@@ -41,7 +41,8 @@ class ImageUI:
         self.root = parent
 
         # Status variables
-        self.img_text = tk.StringVar(value="")
+        self.stat_img_text = tk.StringVar(value="")
+        self.act_img_text = tk.StringVar(value="")
         self.bckgrd_img_text = tk.StringVar(value="")
         self.platelet_count_text = tk.StringVar(value="Platelet count: ---")
         self.activity_text = tk.StringVar(value="---\n")
@@ -52,9 +53,13 @@ class ImageUI:
         self.im1 = np.zeros((100, 100))
         self.im2 = np.zeros((100, 100))
         self.im3 = np.zeros((100, 100))
+        self.im4 = np.zeros((100, 100))
+        self.im5 = np.zeros((100, 100))
+        self.im6 = np.zeros((100, 100))
 
         # Store selected paths
-        self.selected_image_paths = []
+        self.selected_stat_image_paths = []
+        self.selected_act_image_paths = []
         self.selected_background_path = None
 
         # Build the UI
@@ -67,12 +72,23 @@ class ImageUI:
         left = tk.Frame(self.root)
         left.pack(side=tk.LEFT, padx=10, pady=10)
 
-        # Image selection button
-        tk.Button(left, text="Select images to count", width=15,
-                  command=self.open_images).pack(pady=2)
+        # Static image selection button
+        tk.Button(left, text="Select non activated\nplatelet images", width=15,
+                  command=self.open_stat_images).pack(pady=2)
         tk.Label(
             left,
-            textvariable=self.img_text,
+            textvariable=self.stat_img_text,
+            font=("Helvetica", 10),
+            wraplength=180,
+            anchor="w"
+        ).pack(pady=2)
+
+        # Activated image selection button
+        tk.Button(left, text="Select activated\nplatelet images", width=15,
+                  command=self.open_act_images).pack(pady=2)
+        tk.Label(
+            left,
+            textvariable=self.act_img_text,
             font=("Helvetica", 10),
             wraplength=180,
             anchor="w"
@@ -104,25 +120,32 @@ class ImageUI:
         tk.Label(left, text="VWF Activity",
                  font=("Helvetica", 16)).pack(pady=(20, 5))
         tk.Label(left, textvariable=self.activity_text,
-                 font=("Helvetica", 12)).pack(pady=2)
+                 font=("Helvetica", 16)).pack(pady=2)
         
         # Initialize right side plots
         self.fig = Figure(figsize=(6.5, 6.5), dpi=100)
-        self.gs = GridSpec(2, 3, figure=self.fig)
+        self.gs = GridSpec(3, 3, figure=self.fig)
 
         self.ax_im1 = self.fig.add_subplot(self.gs[0, 0])
         self.ax_im2 = self.fig.add_subplot(self.gs[0, 1])
         self.ax_im3 = self.fig.add_subplot(self.gs[0, 2])
-        self.ax_cal = self.fig.add_subplot(self.gs[1, :])
+        self.ax_im4 = self.fig.add_subplot(self.gs[1, 0])
+        self.ax_im5 = self.fig.add_subplot(self.gs[1, 1])
+        self.ax_im6 = self.fig.add_subplot(self.gs[1, 2])
+        self.ax_cal = self.fig.add_subplot(self.gs[2, :])
 
         self.ax_im1.imshow(self.im1, cmap="gray", vmin=0, vmax=1)
         self.ax_im2.imshow(self.im2, cmap="gray", vmin=0, vmax=1)
         self.ax_im3.imshow(self.im3, cmap="gray", vmin=0, vmax=1)
-        for ax in (self.ax_im1, self.ax_im2, self.ax_im3):
+        self.ax_im4.imshow(self.im4, cmap="gray", vmin=0, vmax=1)
+        self.ax_im5.imshow(self.im5, cmap="gray", vmin=0, vmax=1)
+        self.ax_im6.imshow(self.im6, cmap="gray", vmin=0, vmax=1)
+        for ax in (self.ax_im1, self.ax_im2, self.ax_im3,
+                   self.ax_im4, self.ax_im5, self.ax_im6):
             ax.axis("off")
 
         self.ax_cal.set_title("Calibration curve")
-        self.ax_cal.set_xlabel("Number of platelets")
+        self.ax_cal.set_xlabel("Platelet loss (%)")
         self.ax_cal.set_ylabel("VWF Activity (%)")
         self.ax_cal.grid(True)
 
@@ -146,33 +169,66 @@ class ImageUI:
 
         return os.sep.join([parts[-(max_parts+1)], "...", parts[-1]])
 
-    def open_images(self):
+    def open_stat_images(self):
         paths = filedialog.askopenfilenames(
-            title="Select the images to count",
+            title="Select the static images to count",
             filetypes=(("All files", "*.*"),)
         )
-        self.selected_image_paths = list(paths)
+        self.selected_stat_image_paths = list(paths)
         shortened = [self._shorten_path(p) for p in paths]
 
         # Show paths
         display_text = "Selected images:\n" + "\n".join(shortened)
-        self.img_text.set(display_text)
+        self.stat_img_text.set(display_text)
 
-        # Show images
+        # Update images
         self.im1 = cv2.imread(paths[0], cv2.IMREAD_GRAYSCALE)
         self.ax_im1.imshow(self.im1, cmap="gray")
-        self.ax_im1.set_title("Image 1")
+        self.ax_im1.set_title("Non activated platelets (1)")
 
         self.im2 = cv2.imread(paths[1], cv2.IMREAD_GRAYSCALE)
         self.ax_im2.imshow(self.im2, cmap="gray")
-        self.ax_im2.set_title("Image 2")
+        self.ax_im2.set_title("Non activated platelets (2)")
         
         self.im3 = cv2.imread(paths[2], cv2.IMREAD_GRAYSCALE)
         self.ax_im3.imshow(self.im3, cmap="gray")
-        self.ax_im3.set_title("Image 3")
+        self.ax_im3.set_title("Non activated platelets (3)")
 
         for ax in (self.ax_im1, self.ax_im2, self.ax_im3):
             ax.axis("off")
+        self.canvas.draw_idle()
+    
+    def open_act_images(self):
+        paths = filedialog.askopenfilenames(
+            title="Select the activated images to count",
+            filetypes=(("All files", "*.*"),)
+        )
+        self.selected_act_image_paths = list(paths)
+        shortened = [self._shorten_path(p) for p in paths]
+
+        # Show paths
+        display_text = "Selected images:\n" + "\n".join(shortened)
+        self.act_img_text.set(display_text)
+
+        # Update images
+        self.ax_im4.clear()
+        self.im4 = cv2.imread(paths[0], cv2.IMREAD_GRAYSCALE)
+        self.ax_im4.imshow(self.im4, cmap="gray")
+        self.ax_im4.set_title("Activated platelets (1)")
+
+        self.ax_im5.clear()
+        self.im5 = cv2.imread(paths[1], cv2.IMREAD_GRAYSCALE)
+        self.ax_im5.imshow(self.im5, cmap="gray")
+        self.ax_im5.set_title("Activated platelets (2)")
+    
+        self.ax_im6.clear()
+        self.im6 = cv2.imread(paths[2], cv2.IMREAD_GRAYSCALE)
+        self.ax_im6.imshow(self.im6, cmap="gray")
+        self.ax_im6.set_title("Activated platelets (3)")
+
+        for ax in (self.ax_im4, self.ax_im5, self.ax_im6):
+            ax.axis("off")
+        self.canvas.draw_idle()
     
     def open_background_image(self):
         path =  filedialog.askopenfilename(
@@ -189,58 +245,101 @@ class ImageUI:
         Uses stored paths to call count_platelets.
         Display results and updates count
         """
-        if not self.selected_image_paths:
-            print("No images selected.")
+        if not self.selected_stat_image_paths:
+            print("No non activated platelet images selected.")
+            return
+        
+        if not self.selected_act_image_paths:
+            print("No activated platelet images selected.")
             return
 
         if not self.selected_background_path:
             print("No background image selected.")
             return
 
-        counts = []
-        overlays = []
-        for file_path in self.selected_image_paths:
+        stat_counts = []
+        stat_overlays = []
+        for file_path in self.selected_stat_image_paths:
             labels_filtered = self.count_platelets(
                 file_path=file_path,
                 bkgrd_img_path=self.selected_background_path,
                 debug=self.debug_mode.get()
             )
-            counts.append(np.max(labels_filtered))
-            overlays.append(labels_filtered)
+            stat_counts.append(np.max(labels_filtered))
+            stat_overlays.append(labels_filtered)
 
-        # Show mean platelet count
-        mean_count = np.mean(counts)
-        std_count = np.std(counts)
-        self.platelet_count_text.set(f"Platelet count : {mean_count:.1f} ± {std_count:.1f} ")
+        act_counts = []
+        act_overlays = []
+        for file_path in self.selected_act_image_paths:
+            labels_filtered = self.count_platelets(
+                file_path=file_path,
+                bkgrd_img_path=self.selected_background_path,
+                debug=self.debug_mode.get()
+            )
+            act_counts.append(np.max(labels_filtered))
+            act_overlays.append(labels_filtered)
+
+        # Show platelet counts
+        stat_mean_count = np.mean(stat_counts)
+        stat_std_count = np.std(stat_counts)
+        act_mean_count = np.mean(act_counts)
+        act_std_count = np.std(act_counts)
+        platelet_loss = (stat_mean_count - act_mean_count) / stat_mean_count * 100
+
+        # Propagate uncertainty for platelet loss (ratio propagation)
+        epsilon = 1e-12
+        rel_stat_std = stat_std_count / (stat_mean_count + epsilon)
+        rel_act_std = act_std_count / (act_mean_count + epsilon)
+        platelet_loss_std = abs(platelet_loss) * np.sqrt(rel_stat_std**2 + rel_act_std**2)
+
+        self.platelet_count_text.set(
+            f"""Non activated platelet count : {stat_mean_count:.1f} ± {stat_std_count:.1f}
+Activated platelet count : {act_mean_count:.1f} ± {act_std_count:.1f}
+Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
+        )
 
         # Update images
         self.ax_im1.clear()
         self.ax_im1.imshow(self.im1, cmap="gray")
-        self.ax_im1.imshow(overlays[0], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im1.set_title(f"Image 1 : {counts[0]} platelets")
+        self.ax_im1.imshow(stat_overlays[0], cmap="nipy_spectral", alpha=0.5)
+        self.ax_im1.set_title(f"{stat_counts[0]} platelets")
 
         self.ax_im2.clear()
         self.ax_im2.imshow(self.im2, cmap="gray")
-        self.ax_im2.imshow(overlays[1], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im2.set_title(f"Image 2 : {counts[1]} platelets")
+        self.ax_im2.imshow(stat_overlays[1], cmap="nipy_spectral", alpha=0.5)
+        self.ax_im2.set_title(f"{stat_counts[1]} platelets")
         
         self.ax_im3.clear()
         self.ax_im3.imshow(self.im3, cmap="gray")
-        self.ax_im3.imshow(overlays[2], cmap="nipy_spectral", alpha=0.5)
-        self.ax_im3.set_title(f"Image 3 : {counts[2]} platelets")
+        self.ax_im3.imshow(stat_overlays[2], cmap="nipy_spectral", alpha=0.5)
+        self.ax_im3.set_title(f"{stat_counts[2]} platelets")
 
-        for ax in (self.ax_im1, self.ax_im2, self.ax_im3):
+        self.ax_im4.clear()
+        self.ax_im4.imshow(self.im4, cmap="gray")
+        self.ax_im4.imshow(act_overlays[0], cmap="nipy_spectral", alpha=0.5)
+        self.ax_im4.set_title(f"{act_counts[0]} platelets")
+
+        self.ax_im5.clear()
+        self.ax_im5.imshow(self.im5, cmap="gray")
+        self.ax_im5.imshow(act_overlays[1], cmap="nipy_spectral", alpha=0.5)
+        self.ax_im5.set_title(f"{act_counts[1]} platelets")
+        
+        self.ax_im6.clear()
+        self.ax_im6.imshow(self.im6, cmap="gray")
+        self.ax_im6.imshow(act_overlays[2], cmap="nipy_spectral", alpha=0.5)
+        self.ax_im6.set_title(f"{act_counts[2]} platelets")
+
+        for ax in (self.ax_im1, self.ax_im2, self.ax_im3,
+                   self.ax_im4, self.ax_im5, self.ax_im6):
             ax.axis("off")
 
         self.canvas.draw_idle()
 
         # Show activity
-        activity = platelets_to_vwf_activity(mean_count)
-        max_activity = platelets_to_vwf_activity(mean_count - std_count)
-        min_activity = platelets_to_vwf_activity(mean_count + std_count)
-        std_activity = (max_activity - min_activity) / 2
-
-        self.activity_text.set(f"({activity:.2f} ± {std_activity:.2f}) %\n")
+        activity = platelets_to_vwf_activity(platelet_loss)
+        # Propagate uncertainty through linear calibration (y = m x + b)
+        activity_std = abs(m) * platelet_loss_std
+        self.activity_text.set(f"({activity:.2f} ± {activity_std:.2f}) %")
 
         # Update calibration curve plot
         x_vals = np.linspace(0, 1.05 * CONTROL_POINTS[:, 0].max(), 100)
@@ -255,15 +354,15 @@ class ImageUI:
             label="Control Points"
         )
         self.ax_cal.errorbar(
-            mean_count, activity,
-            xerr=std_count,
-            yerr=std_activity,
+            platelet_loss, activity,
+            xerr=platelet_loss_std,
+            yerr=activity_std,
             fmt="o",
             color="red",
             ecolor="red",
             elinewidth=2,
             capsize=5,
-            label=f"Measured Point ({activity:.2f}% ± {std_activity:.2f}%)"
+            label=f"Measured Point ({activity:.2f} ± {activity_std:.2f}%)"
         )
         self.ax_cal.set_xlabel("Number of platelets")
         self.ax_cal.set_ylabel("VWF Activity (%)")
@@ -301,7 +400,7 @@ class ImageUI:
         # Normalize the image histogram
         dimensions = img_corrected.shape
         number_of_pixels = dimensions[0] * dimensions[1]
-        hist, _ = np.histogram(img_corrected, bins=256, range=(35, 255))
+        hist, _ = np.histogram(img_corrected, bins=256, range=(15, 255))
         normalized_cumulative_histogram = np.cumsum(hist) / number_of_pixels
         img_norm = 255 * normalized_cumulative_histogram[img_corrected]
         img_norm = img_norm.astype(np.uint8)
@@ -313,8 +412,8 @@ class ImageUI:
         bin_img = binary.astype(bool)
 
         # Morphological filtering (work on boolean image)
-        filtered_bin_img = morphology.remove_small_objects(bin_img, max_size=15)
-        filtered_bin_img = morphology.remove_small_holes(filtered_bin_img, max_size=150)
+        filtered_bin_img = morphology.remove_small_objects(bin_img, max_size=5)
+        filtered_bin_img = morphology.remove_small_holes(filtered_bin_img, max_size=50)
 
         # Label the regions
         labels_all = measure.label(filtered_bin_img, connectivity=2)
@@ -330,8 +429,8 @@ class ImageUI:
         for i, r in enumerate(regions_all):
             if (
                 np.min(D[i]) > distance_threshold
-                and r.area <= 150
-                and r.solidity > 0.9
+                and r.area <= 250
+                and r.solidity > 0.8
             ):
                 coords = r.coords
                 isolated_mask[coords[:, 0], coords[:, 1]] = True
