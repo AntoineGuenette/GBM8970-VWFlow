@@ -24,7 +24,7 @@ CONTROL_POINTS = np.array(
         (1.2, 75), # Temporary turbidity value
         (1.95, 50), # Temporary turbidity value
         (2.7, 25), # Temporary turbidity value
-        (3.25, 0) # Add a point for 0% activity (optional, but can help with extrapolation)
+        (3.25, 0) # Temporary value
     ]
 )
 
