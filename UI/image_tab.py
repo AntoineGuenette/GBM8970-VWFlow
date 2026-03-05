@@ -463,52 +463,50 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         labels_filtered = measure.label(isolated_mask, connectivity=2)
         regions_filtered = measure.regionprops(labels_filtered)
 
-        if debug :
-            plt.figure(figsize=(14, 10))
+        if debug:
 
-            plt.subplot(2, 4, 1)
-            plt.imshow(img, cmap="gray")
-            plt.title("Image originale (niveaux de gris)")
-            plt.axis("off")
+            debug_fig = Figure(figsize=(14, 10))
+            axes = [debug_fig.add_subplot(2, 4, i+1) for i in range(8)]
 
-            plt.subplot(2, 4, 2)
-            plt.imshow(img_corrected, cmap="gray")
-            plt.title("Image corrigée")
-            plt.axis("off")
+            axes[0].imshow(img, cmap="gray")
+            axes[0].set_title("Image originale (niveaux de gris)")
+            axes[0].axis("off")
 
-            plt.subplot(2, 4, 3)
-            plt.imshow(img_norm, cmap="gray")
-            plt.title("Image normalisée")
-            plt.axis("off")
+            axes[1].imshow(img_corrected, cmap="gray")
+            axes[1].set_title("Image corrigée")
+            axes[1].axis("off")
 
-            plt.subplot(2, 4, 4)
-            plt.imshow(binary, cmap="gray")
-            plt.title("Binarisation (OTSU)")
-            plt.axis("off")
+            axes[2].imshow(img_norm, cmap="gray")
+            axes[2].set_title("Image normalisée")
+            axes[2].axis("off")
 
-            plt.subplot(2, 4, 5)
-            plt.imshow(filtered_bin_img, cmap="gray")
-            plt.title("Filtrage morphologique")
-            plt.axis("off")
+            axes[3].imshow(binary, cmap="gray")
+            axes[3].set_title("Binarisation (OTSU)")
+            axes[3].axis("off")
 
-            plt.subplot(2, 4, 6)
-            plt.imshow(img, cmap="gray")
-            plt.imshow(labels_all, cmap="nipy_spectral", alpha=0.5)
-            plt.title(f"Régions détectées ({len(regions_all)})")
-            plt.axis("off")
+            axes[4].imshow(filtered_bin_img, cmap="gray")
+            axes[4].set_title("Filtrage morphologique")
+            axes[4].axis("off")
 
-            plt.subplot(2, 4, 7)
-            plt.imshow(isolated_mask, cmap="gray")
-            plt.title("Retrait des agrégats")
-            plt.axis("off")
+            axes[5].imshow(img, cmap="gray")
+            axes[5].imshow(labels_all, cmap="nipy_spectral", alpha=0.5)
+            axes[5].set_title(f"Régions détectées ({len(regions_all)})")
+            axes[5].axis("off")
 
-            plt.subplot(2, 4, 8)
-            plt.imshow(img, cmap="gray")
-            plt.imshow(labels_filtered, cmap="nipy_spectral", alpha=0.5)
-            plt.title(f"Plaquettes seules détectées ({len(regions_filtered)})")
-            plt.axis("off")
+            axes[6].imshow(isolated_mask, cmap="gray")
+            axes[6].set_title("Retrait des agrégats")
+            axes[6].axis("off")
 
-            plt.savefig(debug_file_path, dpi=300)
+            axes[7].imshow(img, cmap="gray")
+            axes[7].imshow(labels_filtered, cmap="nipy_spectral", alpha=0.5)
+            axes[7].set_title(f"Plaquettes seules détectées ({len(regions_filtered)})")
+            axes[7].axis("off")
+
+            debug_fig.tight_layout()
+            debug_fig.savefig(debug_file_path, dpi=300)
+
+            # Explicitly delete figure to avoid Tkinter callback conflicts
+            del debug_fig
 
         return labels_filtered
 
