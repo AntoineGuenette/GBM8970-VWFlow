@@ -59,33 +59,48 @@ Install the required Python packages:
 pip install -r requirements.txt
 ```
 
-### Step 3 - Launch the UI
+---
+
+## UI Versions
+
+The repository contains two versions of the graphical interface depending on how the hardware communicates with the computer.
+
+### Serial UI (USB)
+The serial version communicates with the Arduinos through USB serial ports.
+
+Launch the UI:
 ```bash
 python UI_serial/main.py
 ```
->[!Warning]
-> Make sure both the stirrer and the sensor are connected before lauching the UI.
 
----
+Simulation options:
 
-## Simulation Modes
-
-For development or testing without physical hardware, the UI can be launched in simulation mode.
-
-### Simulate the stirrer
-When only the sensor is connected, run :
+Simulate the stirrer only:
 ```bash
 python UI_serial/main.py --simulate-stirrer
 ```
 
-### Simulate the sensor
-When only the stirrer is connected, run :
+Simulate the sensor only:
 ```bash
 python UI_serial/main.py --simulate-sensor
 ```
 
-### Simulate all hardware
-When no hardware is connected, run :
+Simulate both devices:
 ```bash
 python UI_serial/main.py --simulate-stirrer --simulate-sensor
 ```
+
+### Bluetooth UI (BLE)
+The Bluetooth version communicates with the Arduino using Bluetooth Low Energy (BLE).
+
+Launch the UI:
+```bash
+python UI_bluetooth/main.py
+```
+
+Simulation mode (no hardware required):
+```bash
+python UI_bluetooth/main.py --simulate-device
+```
+
+In simulation mode, the BLE device discovery step is skipped and the UI runs without attempting to connect to physical hardware.
