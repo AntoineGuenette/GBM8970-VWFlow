@@ -61,7 +61,7 @@ pip install -r requirements.txt
 
 ### Step 3 - Launch the UI
 ```bash
-python UI/main.py
+python UI_serial/main.py
 ```
 >[!Warning]
 > Make sure both the stirrer and the sensor are connected before lauching the UI.
@@ -75,17 +75,17 @@ For development or testing without physical hardware, the UI can be launched in 
 ### Simulate the stirrer
 When only the sensor is connected, run :
 ```bash
-python UI/main.py --simulate-stirrer
+python UI_serial/main.py --simulate-stirrer
 ```
 
 ### Simulate the sensor
 When only the stirrer is connected, run :
 ```bash
-python UI/main.py --simulate-sensor
+python UI_serial/main.py --simulate-sensor
 ```
 
 ### Simulate all hardware
 When no hardware is connected, run :
 ```bash
-python UI/main.py --simulate-stirrer --simulate-sensor
+python UI_serial/main.py --simulate-stirrer --simulate-sensor
 ```
