@@ -141,7 +141,12 @@ class BLEManager:
 # =========================
 class StirrerUI:
     def __init__(self, parent, ble_address=None, rx_uuid=None, tx_uuid=None):
+        global SIMULATION_MODE
         self.root = parent
+
+        # Enable simulation automatically if a dummy BLE address is provided
+        if ble_address == "00:00:00:00:00:00" or ble_address is None:
+            SIMULATION_MODE = True
 
         # Data buffers
         self.start_time = time.time()
@@ -171,11 +176,11 @@ class StirrerUI:
                 on_line_received=self._on_line_received,
             )
             self.status_text = tk.StringVar(value=f"Connecting BLE to {ble_address}...")
-            # Enable streaming once connected (poll until connected)
             self.root.after(2000, self._init_stream)
         else:
+            # Simulation: no BLE connection
             self.ble = None
-            self.status_text = tk.StringVar(value="SIMULATION (UI only)")
+            self.status_text = tk.StringVar(value="SIMULATION MODE – no BLE device")
 
         self._build_ui()
         self.update_slider_mode()

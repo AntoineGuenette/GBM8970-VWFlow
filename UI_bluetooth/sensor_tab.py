@@ -103,7 +103,12 @@ class BLEManager:
 # =========================
 class SensorUI:
     def __init__(self, parent, ble_address=None, rx_uuid=None, tx_uuid=None):
+        global SIMULATION_MODE
         self.root = parent
+
+        # Enable simulation automatically if a dummy BLE address is provided
+        if ble_address == "00:00:00:00:00:00" or ble_address is None:
+            SIMULATION_MODE = True
 
         # Incoming data buffer (filled by BLE thread, read by acquire_data)
         self._data_rows = []
@@ -127,8 +132,9 @@ class SensorUI:
             self.status_text = tk.StringVar(value=f"Connecting sensor BLE to {ble_address}...")
             self.root.after(2000, self._check_connected)
         else:
+            # Simulation: no BLE connection
             self.ble = None
-            self.status_text = tk.StringVar(value="SIMULATION (UI only)")
+            self.status_text = tk.StringVar(value="SIMULATION MODE – no BLE device")
 
         self._build_ui()
 
