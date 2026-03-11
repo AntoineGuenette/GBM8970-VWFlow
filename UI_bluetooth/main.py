@@ -1,10 +1,13 @@
 import asyncio
 import argparse
 import tkinter as tk
+
 from tkinter import ttk
 from bleak import BleakScanner
+
 from stirrer_tab import StirrerUI
 from sensor_tab import SensorUI
+from image_tab import ImageUI
 
 def parse_args():
     # Parse command-line arguments for simulation modes
@@ -107,12 +110,21 @@ def main():
         tx_uuid=SENSOR_TX_UUID,
     )
 
+    # Image tab — no BLE connection
+    image_frame = ttk.Frame(notebook)
+    notebook.add(image_frame, text="Image")
+    image_ui = ImageUI(image_frame)
+
+    # Handle window close event
     def on_close():
         stirrer_ui.on_close()
         sensor_ui.on_close()
+        image_ui.on_close()
         root.destroy()
-
+        print("\nApplication closed with success.")
     root.protocol("WM_DELETE_WINDOW", on_close)
+
+    # Start the main event loop
     root.mainloop()
 
 
