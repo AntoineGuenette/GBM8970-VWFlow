@@ -507,7 +507,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         bin_img = binary.astype(bool)
 
         # Morphological filtering (work on boolean image)
-        filtered_bin_img = morphology.remove_small_objects(bin_img, max_size=5)
+        filtered_bin_img = morphology.remove_small_objects(bin_img, max_size=10)
         filtered_bin_img = morphology.remove_small_holes(filtered_bin_img, max_size=50)
 
         # Label the regions
@@ -524,7 +524,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         for i, r in enumerate(regions_all):
             if (
                 np.min(D[i]) > distance_threshold
-                and r.area <= 250
+                and r.area <= 200
                 and r.solidity > 0.8
             ):
                 coords = r.coords
