@@ -14,23 +14,60 @@ from matplotlib.figure import Figure
 # =========================
 # CONFIG
 # =========================
-CONTROL_POINTS = np.array(
-    [ # (Number of platelets, VWF activity) pairs for the calibration curve
-        (50, 100), # Temporary value
-        (36, 75), # Temporary value
-        (22, 50), # Temporary value
-        (8, 25), # Temporary value
-        (0, 0)
-    ]
-)
+CONTROL_POINTS = {
+    # Activity: [(val1,std1), (val2,std2), (val3,std3)]
+    100: [(52,15), (48,20), (50,14)], # Temporary values
+    75:  [(35,10), (37,20), (36,16)], # Temporary values
+    50:  [(23,9), (22,15), (21,10)], # Temporary values
+    25:  [(8,6), (9,8), (7,5)], # Temporary values
+    0:   [(0,0)]
+}
 
 # =========================
 # NUMBER OF PLATELETS -> VWF ACTIVITY CONVERSION
 # =========================
-m, b = np.polyfit(x=CONTROL_POINTS[:, 0], y=CONTROL_POINTS[:, 1], deg=1)
-
 def platelets_to_vwf_activity(nb_platelets: float) -> float:
     return m * nb_platelets + b
+
+def build_calibration_points(control_dict):
+    x_mean = []
+    x_std = []
+    y = []
+
+    for activity, measurements in control_dict.items():
+
+        mean, std = mean_with_uncertainty(measurements)
+
+        x_mean.append(mean)
+        x_std.append(std)
+        y.append(activity)
+
+    return np.array(x_mean), np.array(x_std), np.array(y)
+
+def mean_with_uncertainty(measurements):
+    """
+    Compute the mean and propagated uncertainty from measurements expressed as (value, std).
+
+    Parameters:
+        - measurements (list) : List of measurements expressed as (value, std)
+
+    Returns:
+        - mean (float) : Mean of the measurements
+        - std (float) : Propagated uncertainty from measurements
+    """
+    values = np.array([m[0] for m in measurements])
+    stds = np.array([m[1] for m in measurements])
+
+    mean = np.mean(values)
+
+    # Propagation of independent uncertainties
+    std = np.sqrt(np.sum(stds**2)) / len(stds)
+
+    return mean, std
+
+x_mean, x_std, y = build_calibration_points(CONTROL_POINTS)
+weights = 1 / (x_std**2 + 1e-12)
+m, b = np.polyfit(x_mean, y, 1, w=weights)
 
 # =========================
 # UI
@@ -458,16 +495,19 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         self.activity_text.set(f"({activity:.2f} ± {activity_std:.2f}) %")
 
         # Update calibration curve plot
-        x_vals = np.linspace(0, 1.05 * CONTROL_POINTS[:, 0].max(), 100)
+        x_vals = np.linspace(0, 1.05 * x_mean.max(), 100)
         y_vals = m * x_vals + b
 
         self.ax_cal.clear()
         self.ax_cal.plot(x_vals, y_vals, color="black", linestyle="--",
                             label="Calibration Curve")
-        self.ax_cal.scatter(
-            CONTROL_POINTS[:, 0], CONTROL_POINTS[:, 1],
+        self.ax_cal.errorbar(
+            x_mean, y,
+            xerr=x_std,
+            fmt="o",
             color="blue",
-            label="Control Points"
+            capsize=5,
+            label="Control points"
         )
         self.ax_cal.errorbar(
             platelet_loss, activity,
@@ -482,7 +522,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         )
         self.ax_cal.set_xlabel("Platelet loss (%)")
         self.ax_cal.set_ylabel("VWF Activity (%)")
-        self.ax_cal.set_xlim(0, 1.05 * CONTROL_POINTS[:, 0].max())
+        self.ax_cal.set_xlim(0, 1.05 * x_mean.max())
         self.ax_cal.set_ylim(0, 200)
         self.ax_cal.set_title("Calibration Curve")
         self.ax_cal.legend()
