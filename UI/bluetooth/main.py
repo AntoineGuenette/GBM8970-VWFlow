@@ -5,9 +5,9 @@ import tkinter as tk
 from tkinter import ttk
 from bleak import BleakScanner
 
-from stirrer_tab import StirrerUI
-from sensor_tab import SensorUI
-from image_tab import ImageUI
+from UI.bluetooth.stirrer_tab import StirrerUI
+from UI.bluetooth.sensor_tab import SensorUI
+from UI.image_tab import ImageUI
 
 def parse_args():
     # Parse command-line arguments for simulation modes

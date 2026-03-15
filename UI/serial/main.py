@@ -5,9 +5,9 @@ import serial.tools.list_ports
 import tkinter as tk
 from tkinter import ttk
 
-from stirrer_tab import StirrerUI
-from sensor_tab import SensorUI
-from image_tab import ImageUI
+from UI.serial.stirrer_tab import StirrerUI
+from UI.serial.sensor_tab import SensorUI
+from UI.image_tab import ImageUI
 
 def parse_args():
     # Parse command-line arguments for simulation modes
