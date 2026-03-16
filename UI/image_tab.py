@@ -8,6 +8,7 @@ from matplotlib.gridspec import GridSpec
 from tkinter import filedialog
 from skimage import measure, morphology
 from scipy.spatial.distance import cdist
+from scipy.optimize import curve_fit
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
     
@@ -16,18 +17,21 @@ from matplotlib.figure import Figure
 # =========================
 CONTROL_POINTS = {
     # Activity: [(val1,std1), (val2,std2), (val3,std3)]
-    100: [(52,15), (48,20), (50,14)], # Temporary values
-    75:  [(35,10), (37,20), (36,16)], # Temporary values
-    50:  [(23,9), (22,15), (21,10)], # Temporary values
-    25:  [(8,6), (9,8), (7,5)], # Temporary values
-    0:   [(0,0)]
+    104: [(42.99, 3.88), (55.50, 7.36), (73.99, 10.42)],
+    78:  [(44.79, 2.71), (44.96, 6.91), (49.28, 4.69)],
+    52:  [(40.38, 3.63), (46.89, 4.99), (60.08, 5.29)],
+    26:  [(30.84, 3.21), (32.30, 3.13), (53.82, 6.99)],
+    0:   [(0, 0)]
 }
 
 # =========================
 # NUMBER OF PLATELETS -> VWF ACTIVITY CONVERSION
 # =========================
+def linear_model(x, m, b):
+    return m * x + b
+
 def platelets_to_vwf_activity(nb_platelets: float) -> float:
-    return m * nb_platelets + b
+    return linear_model(nb_platelets, m, b)
 
 def build_calibration_points(control_dict):
     x_mean = []
@@ -65,9 +69,10 @@ def mean_with_uncertainty(measurements):
 
     return mean, std
 
+# Compute calibration using linear model
 x_mean, x_std, y = build_calibration_points(CONTROL_POINTS)
-weights = 1 / (x_std**2 + 1e-12)
-m, b = np.polyfit(x_mean, y, 1, w=weights)
+params, _ = curve_fit(linear_model, x_mean, y)
+m, b = params
 
 # =========================
 # UI
@@ -177,6 +182,7 @@ class ImageUI:
         self.fig = Figure(figsize=(6.5, 6.5), dpi=100)
         self.gs = GridSpec(3, 3, figure=self.fig)
 
+        # Image plots
         self.ax_im1 = self.fig.add_subplot(self.gs[0, 0])
         self.ax_im2 = self.fig.add_subplot(self.gs[0, 1])
         self.ax_im3 = self.fig.add_subplot(self.gs[0, 2])
@@ -195,9 +201,25 @@ class ImageUI:
                    self.ax_im4, self.ax_im5, self.ax_im6):
             ax.axis("off")
 
+        # Calibration plot
+        x_vals = np.linspace(0, 100, 1000)
+        y_vals = linear_model(x_vals, m, b)
+        self.ax_cal.plot(x_vals, y_vals, color="black", linestyle="--",
+                            label="Calibration Curve")
+        self.ax_cal.errorbar(
+            x_mean, y,
+            xerr=x_std,
+            fmt="o",
+            color="blue",
+            capsize=5,
+            label="Control points"
+        )
+        self.ax_cal.legend()
         self.ax_cal.set_title("Calibration curve")
         self.ax_cal.set_xlabel("Platelet loss (%)")
         self.ax_cal.set_ylabel("VWF Activity (%)")
+        self.ax_cal.set_xlim(0, 100)
+        self.ax_cal.set_ylim(0, 200)
         self.ax_cal.grid(True)
 
         # Graph widget
@@ -495,8 +517,8 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         self.activity_text.set(f"({activity:.2f} ± {activity_std:.2f}) %")
 
         # Update calibration curve plot
-        x_vals = np.linspace(0, 1.05 * x_mean.max(), 100)
-        y_vals = m * x_vals + b
+        x_vals = np.linspace(0, 100, 1000)
+        y_vals = linear_model(x_vals, m, b)
 
         self.ax_cal.clear()
         self.ax_cal.plot(x_vals, y_vals, color="black", linestyle="--",
@@ -522,7 +544,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         )
         self.ax_cal.set_xlabel("Platelet loss (%)")
         self.ax_cal.set_ylabel("VWF Activity (%)")
-        self.ax_cal.set_xlim(0, 1.05 * x_mean.max())
+        self.ax_cal.set_xlim(0, 100)
         self.ax_cal.set_ylim(0, 200)
         self.ax_cal.set_title("Calibration Curve")
         self.ax_cal.legend()
