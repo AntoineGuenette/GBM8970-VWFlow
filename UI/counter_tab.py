@@ -77,7 +77,7 @@ m, b = params
 # =========================
 # UI
 # =========================
-class ImageUI:
+class CounterUI:
     def __init__(self, parent):
         # Initialize tab UI
         self.root = parent
@@ -540,7 +540,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
             ecolor="red",
             elinewidth=2,
             capsize=5,
-            label=f"Measured Point ({activity:.2f} ± {activity_std:.2f}%)"
+            label=f"Measured Point"
         )
         self.ax_cal.set_xlabel("Platelet loss (%)")
         self.ax_cal.set_ylabel("VWF Activity (%)")

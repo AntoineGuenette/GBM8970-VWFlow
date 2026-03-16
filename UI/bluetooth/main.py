@@ -7,7 +7,7 @@ from bleak import BleakScanner
 
 from UI.bluetooth.stirrer_tab import StirrerUI
 from UI.bluetooth.sensor_tab import SensorUI
-from UI.image_tab import ImageUI
+from UI.counter_tab import CounterUI
 
 def parse_args():
     # Parse command-line arguments for simulation modes
@@ -110,16 +110,16 @@ def main():
         tx_uuid=SENSOR_TX_UUID,
     )
 
-    # Image tab — no BLE connection
-    image_frame = ttk.Frame(notebook)
-    notebook.add(image_frame, text="Image")
-    image_ui = ImageUI(image_frame)
+    # Counter tab — no BLE connection
+    counter_frame = ttk.Frame(notebook)
+    notebook.add(counter_frame, text="Counter")
+    counter_ui = CounterUI(counter_frame)
 
     # Handle window close event
     def on_close():
         stirrer_ui.on_close()
         sensor_ui.on_close()
-        image_ui.on_close()
+        counter_ui.on_close()
         root.destroy()
         print("\nApplication closed with success.")
     root.protocol("WM_DELETE_WINDOW", on_close)
