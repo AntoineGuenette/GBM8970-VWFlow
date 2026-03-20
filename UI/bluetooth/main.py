@@ -6,7 +6,6 @@ from tkinter import ttk
 from bleak import BleakScanner
 
 from UI.bluetooth.stirrer_tab import StirrerUI
-from UI.bluetooth.sensor_tab import SensorUI
 from UI.counter_tab import CounterUI
 
 def parse_args():
@@ -29,10 +28,6 @@ DEVICE_BLE_NAME = "Arduino"
 # Stirrer characteristics
 STIRRER_RX_UUID = "12345678-1234-1234-1234-123456789abd"
 STIRRER_TX_UUID = "12345678-1234-1234-1234-123456789abe"
-
-# Sensor characteristics
-SENSOR_RX_UUID  = "87654321-4321-4321-4321-cba987654322"
-SENSOR_TX_UUID  = "87654321-4321-4321-4321-cba987654323"
 
 # =========================
 # FIND BLE DEVICE
@@ -100,16 +95,6 @@ def main():
         tx_uuid=STIRRER_TX_UUID,
     )
 
-    # Sensor tab — shares same BLE connection via sensor characteristics
-    sensor_frame = ttk.Frame(notebook)
-    notebook.add(sensor_frame, text="Sensor")
-    sensor_ui = SensorUI(
-        sensor_frame,
-        ble_address=ble_address,
-        rx_uuid=SENSOR_RX_UUID,
-        tx_uuid=SENSOR_TX_UUID,
-    )
-
     # Counter tab — no BLE connection
     counter_frame = ttk.Frame(notebook)
     notebook.add(counter_frame, text="Counter")
@@ -118,7 +103,6 @@ def main():
     # Handle window close event
     def on_close():
         stirrer_ui.on_close()
-        sensor_ui.on_close()
         counter_ui.on_close()
         root.destroy()
         print("\nApplication closed with success.")

@@ -6,7 +6,6 @@ import tkinter as tk
 from tkinter import ttk
 
 from UI.serial.stirrer_tab import StirrerUI
-from UI.serial.sensor_tab import SensorUI
 from UI.counter_tab import CounterUI
 
 def parse_args():
@@ -14,29 +13,22 @@ def parse_args():
     parser = argparse.ArgumentParser(description="GBM8970 – VWFlow controller")
 
     parser.add_argument(
-        "--simulate-stirrer",
+        "--simulate-device",
         action="store_true",
-        help="Run the stirrer in simulation mode"
-    )
-
-    parser.add_argument(
-        "--simulate-sensor",
-        action="store_true",
-        help="Run the sensor in simulation mode"
+        help="Run the device in simulation mode"
     )
 
     return parser.parse_args()
 
-def identify_arduinos(ports, baud=9600, stirrer_simulation=False, sensor_simulation=False):
+def identify_arduinos(ports, baud=9600, stirrer_simulation=False):
 
     stirrer_port = None if not stirrer_simulation else "SIMULATION"
-    sensor_port = None if not sensor_simulation else "SIMULATION"
 
     print("Identifying Arduinos...")
 
     for p in ports:
 
-        if stirrer_simulation and sensor_simulation:
+        if stirrer_simulation:
             break
         try:
             
@@ -58,24 +50,19 @@ def identify_arduinos(ports, baud=9600, stirrer_simulation=False, sensor_simulat
                 if line == "DEVICE:STIRRER" and not stirrer_simulation:
                     stirrer_port = p.device
                     print(f"Identified stirrer on {stirrer_port}")
-                elif line == "DEVICE:SENSOR" and not sensor_simulation:
-                    sensor_port = p.device
-                    print(f"Identified sensor on {sensor_port}")
 
                 if stirrer_simulation :
                     stirrer_port = "SIMULATION"
-                if sensor_simulation:
-                    sensor_port = "SIMULATION"
 
             ser.close()
 
         except Exception as e:
             print("Error on", p.device, e)
 
-    print(f"\nFound stirrer on {stirrer_port} and sensor on {sensor_port}")
+    print(f"\nFound stirrer on {stirrer_port}")
     
     print("\nLaunching UI...")
-    return stirrer_port, sensor_port
+    return stirrer_port
 
 
 def main():
@@ -84,24 +71,20 @@ def main():
     args = parse_args()
 
     # Set global simulation flags
-    global STIRRER_SIMULATION, SENSOR_SIMULATION
-    STIRRER_SIMULATION = args.simulate_stirrer
-    SENSOR_SIMULATION  = args.simulate_sensor
+    global STIRRER_SIMULATION
+    STIRRER_SIMULATION = args.simulate_device
 
     # Identify Arduinos and open serial connections
     BAUD = 9600
     ports = list(serial.tools.list_ports.comports())
-    STIRRER_PORT, SENSOR_PORT = identify_arduinos(
+    STIRRER_PORT= identify_arduinos(
         ports,
         BAUD,
         stirrer_simulation=STIRRER_SIMULATION,
-        sensor_simulation=SENSOR_SIMULATION
     )
-    if (not STIRRER_SIMULATION and STIRRER_PORT is None) or \
-       (not SENSOR_SIMULATION and SENSOR_PORT is None):
+    if (not STIRRER_SIMULATION and STIRRER_PORT is None):
         raise RuntimeError("Could not identify required Arduinos")
     ser_stirrer = None if STIRRER_SIMULATION else serial.Serial(STIRRER_PORT, BAUD, timeout=2)
-    ser_sensor  = None if SENSOR_SIMULATION else serial.Serial(SENSOR_PORT, BAUD, timeout=2)
 
     # Initialize UI
     root = tk.Tk()
@@ -117,11 +100,6 @@ def main():
     notebook.add(stirrer_frame, text="Stirrer")
     stirrer_ui = StirrerUI(stirrer_frame, ser_stirrer, simulation_mode=STIRRER_SIMULATION)
 
-    # Create sensor tab
-    sensor_frame = ttk.Frame(notebook)
-    notebook.add(sensor_frame, text="Sensor")
-    sensor_ui = SensorUI(sensor_frame, ser_sensor, simulation_mode=SENSOR_SIMULATION)
-
     # Create image tab
     counter_frame = ttk.Frame(notebook)
     notebook.add(counter_frame, text="Counter")
@@ -130,7 +108,6 @@ def main():
     # Handle window close event
     def on_close():
         stirrer_ui.on_close()
-        sensor_ui.on_close()
         counter_ui.on_close()
         root.destroy()
         print("\nApplication closed with success.")
