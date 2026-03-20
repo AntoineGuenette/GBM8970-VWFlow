@@ -70,24 +70,12 @@ The serial version communicates with the Arduinos through USB serial ports.
 
 Launch the UI:
 ```bash
-python UI_serial/main.py
+python -m UI.serial.main
 ```
 
-Simulation options:
-
-Simulate the stirrer only:
+Simulation mode (no hardware required):
 ```bash
-python UI_serial/main.py --simulate-stirrer
-```
-
-Simulate the sensor only:
-```bash
-python UI_serial/main.py --simulate-sensor
-```
-
-Simulate both devices:
-```bash
-python UI_serial/main.py --simulate-stirrer --simulate-sensor
+python -m UI.serial.main --simulate-device
 ```
 
 ### Bluetooth UI (BLE)
@@ -95,12 +83,10 @@ The Bluetooth version communicates with the Arduino using Bluetooth Low Energy (
 
 Launch the UI:
 ```bash
-python UI_bluetooth/main.py
+python -m UI.bluetooth.main
 ```
 
 Simulation mode (no hardware required):
 ```bash
-python UI_bluetooth/main.py --simulate-device
+python -m UI.bluetooth.main --simulate-device
 ```
-
-In simulation mode, the BLE device discovery step is skipped and the UI runs without attempting to connect to physical hardware.
