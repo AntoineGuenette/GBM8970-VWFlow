@@ -601,37 +601,37 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
             axes = [debug_fig.add_subplot(2, 4, i+1) for i in range(8)]
 
             axes[0].imshow(img, cmap="gray")
-            axes[0].set_title("Image originale (niveaux de gris)")
+            axes[0].set_title("A) Image originale (niveaux de gris)")
             axes[0].axis("off")
 
             axes[1].imshow(img_corrected, cmap="gray")
-            axes[1].set_title("Image corrigée")
+            axes[1].set_title("B) Correction de l'arrière-plan")
             axes[1].axis("off")
 
             axes[2].imshow(img_norm, cmap="gray")
-            axes[2].set_title("Image normalisée")
+            axes[2].set_title("C) Normalisation de l'histogramme")
             axes[2].axis("off")
 
             axes[3].imshow(binary, cmap="gray")
-            axes[3].set_title("Binarisation (OTSU)")
+            axes[3].set_title("D) Binarisation (OTSU)")
             axes[3].axis("off")
 
             axes[4].imshow(filtered_bin_img, cmap="gray")
-            axes[4].set_title("Filtrage morphologique")
+            axes[4].set_title("E) Filtrage morphologique")
             axes[4].axis("off")
 
             axes[5].imshow(img, cmap="gray")
             axes[5].imshow(labels_all, cmap="nipy_spectral", alpha=0.5)
-            axes[5].set_title(f"Régions détectées ({len(regions_all)})")
+            axes[5].set_title(f"F) Régions détectées ({len(regions_all)})")
             axes[5].axis("off")
 
             axes[6].imshow(isolated_mask, cmap="gray")
-            axes[6].set_title("Retrait des agrégats")
+            axes[6].set_title("G) Retrait des agrégats")
             axes[6].axis("off")
 
             axes[7].imshow(img, cmap="gray")
             axes[7].imshow(labels_filtered, cmap="nipy_spectral", alpha=0.5)
-            axes[7].set_title(f"Plaquettes seules détectées ({len(regions_filtered)})")
+            axes[7].set_title(f"H) Plaquettes seules détectées ({len(regions_filtered)})")
             axes[7].axis("off")
 
             debug_fig.tight_layout()
