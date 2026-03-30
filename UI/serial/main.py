@@ -9,6 +9,7 @@ from tkinter import ttk
 from UI.serial.stirrer_tab import StirrerUI
 from UI.counter_tab import CounterUI
 
+
 # =========================
 # ARGUMENT PARSING
 # =========================
@@ -27,49 +28,36 @@ def parse_args():
 # =========================
 # FIND SERIAL DEVICE
 # =========================
-def identify_arduinos(ports, baud=9600, stirrer_simulation=False):
+def find_serial_device(ports, baud=9600, simulation=False):
 
-    stirrer_port = None if not stirrer_simulation else "SIMULATION"
+     # Skip serial discovery if simulation mode is enabled
+    if simulation:
+        print("Simulation mode enabled. Skipping serial device scan.")
+        return "SIMULATION"
 
-    print("Identifying Arduinos...")
+    print("Identifying Arduino...")
 
     for p in ports:
-
-        if stirrer_simulation:
-            break
         try:
-            
-            print(f"\nTesting {p.device}...")
-            ser = serial.Serial(p.device, baud, timeout=0.5)
-            time.sleep(1)  # allow Arduino reset
+            print(f"Testing {p.device}...")
 
-            # Try multiple WHO attempts to catch boards that reset slowly
-            for _ in range(2):
+            with serial.Serial(p.device, baud, timeout=0.5) as ser:
+                time.sleep(1)  # allow reset
                 ser.write(b"WHO\n")
                 time.sleep(0.1)
 
-            t0 = time.time()
-            while time.time() - t0 < 1:
-                line = ser.readline().decode(errors="ignore").strip()
-                if not line:
-                    continue
-
-                if line == "DEVICE:STIRRER" and not stirrer_simulation:
-                    stirrer_port = p.device
-                    print(f"Identified stirrer on {stirrer_port}")
-
-                if stirrer_simulation :
-                    stirrer_port = "SIMULATION"
-
-            ser.close()
+                t0 = time.time()
+                while time.time() - t0 < 1:
+                    line = ser.readline().decode(errors="ignore").strip()
+                    if line == "DEVICE:STIRRER":
+                        print(f"Found Arduino on {p.device}.\nLaunching UI...")
+                        return p.device
 
         except Exception as e:
-            print("Error on", p.device, e)
+            print(f"Error on {p.device}: {e}")
 
-    print(f"\nFound stirrer on {stirrer_port}")
-    
-    print("\nLaunching UI...")
-    return stirrer_port
+    print("No Arduino found.")
+    return None
 
 # =========================
 # MAIN
@@ -79,21 +67,17 @@ def main():
     # Parse command-line arguments
     args = parse_args()
 
-    # Set global simulation flags
-    global STIRRER_SIMULATION
-    STIRRER_SIMULATION = args.simulate_device
+    # Set global simulation flag
+    global SIMULATION
+    SIMULATION = args.simulate_device
 
-    # Identify Arduinos and open serial connections
+    # Set serial connection
     BAUD = 9600
     ports = list(serial.tools.list_ports.comports())
-    STIRRER_PORT= identify_arduinos(
-        ports,
-        BAUD,
-        stirrer_simulation=STIRRER_SIMULATION,
-    )
-    if (not STIRRER_SIMULATION and STIRRER_PORT is None):
-        raise RuntimeError("Could not identify required Arduinos")
-    ser_stirrer = None if STIRRER_SIMULATION else serial.Serial(STIRRER_PORT, BAUD, timeout=2)
+    port = find_serial_device(ports, BAUD, SIMULATION)
+    if not SIMULATION and port is None:
+        raise RuntimeError("Could not identify Arduino")
+    ser = None if SIMULATION else serial.Serial(port, BAUD, timeout=2)
 
     # Initialize UI
     root = tk.Tk()
@@ -107,7 +91,7 @@ def main():
     # Create stirrer tab
     stirrer_frame = ttk.Frame(notebook)
     notebook.add(stirrer_frame, text="Stirrer")
-    stirrer_ui = StirrerUI(stirrer_frame, ser_stirrer, simulation_mode=STIRRER_SIMULATION)
+    stirrer_ui = StirrerUI(stirrer_frame, ser, simulation_mode=SIMULATION)
 
     # Create counter tab
     counter_frame = ttk.Frame(notebook)

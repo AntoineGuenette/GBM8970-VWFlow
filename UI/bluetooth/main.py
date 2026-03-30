@@ -67,9 +67,8 @@ def main():
     global SIMULATION
     SIMULATION = args.simulate_device
 
-    # Resolve BLE address
+    # Set BLE connection
     ble_address = find_ble_device(SIMULATION)
-
     if SIMULATION:
         # Use a dummy address so downstream BLE code that expects a string does not crash
         ble_address = "00:00:00:00:00:00"
