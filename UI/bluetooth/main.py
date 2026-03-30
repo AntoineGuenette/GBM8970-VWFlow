@@ -39,14 +39,14 @@ def find_ble_device(simulation=False):
 
     # Skip BLE discovery if simulation mode is enabled
     if simulation:
-        print("Simulation mode enabled – skipping BLE device scan.")
+        print("Simulation mode enabled – skipping BLE device scan.\nLaunching UI...")
         return None
 
     async def scan():
         devices = await BleakScanner.discover(timeout=5.0)
         for d in devices:
             if d.name == DEVICE_BLE_NAME:
-                print(f"  Found: {d.address}")
+                print(f"  Found: {d.address}.\nLaunching UI...")
                 return d.address
         return None
 

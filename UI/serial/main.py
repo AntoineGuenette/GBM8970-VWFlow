@@ -32,7 +32,7 @@ def find_serial_device(ports, baud=9600, simulation=False):
 
      # Skip serial discovery if simulation mode is enabled
     if simulation:
-        print("Simulation mode enabled. Skipping serial device scan.")
+        print("Simulation mode enabled. Skipping serial device scan.\nLaunching UI...")
         return "SIMULATION"
 
     print("Identifying Arduino...")
