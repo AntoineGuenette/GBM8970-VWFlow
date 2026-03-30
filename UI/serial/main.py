@@ -3,14 +3,17 @@ import time
 import serial
 import serial.tools.list_ports
 import tkinter as tk
+
 from tkinter import ttk
 
 from UI.serial.stirrer_tab import StirrerUI
 from UI.counter_tab import CounterUI
 
+# =========================
+# ARGUMENT PARSING
+# =========================
 def parse_args():
-    # Parse command-line arguments for simulation modes
-    parser = argparse.ArgumentParser(description="GBM8970 – VWFlow controller")
+    parser = argparse.ArgumentParser(description="GBM8970 – VWFlow serial controller")
 
     parser.add_argument(
         "--simulate-device",
@@ -20,6 +23,10 @@ def parse_args():
 
     return parser.parse_args()
 
+
+# =========================
+# FIND SERIAL DEVICE
+# =========================
 def identify_arduinos(ports, baud=9600, stirrer_simulation=False):
 
     stirrer_port = None if not stirrer_simulation else "SIMULATION"
@@ -64,7 +71,9 @@ def identify_arduinos(ports, baud=9600, stirrer_simulation=False):
     print("\nLaunching UI...")
     return stirrer_port
 
-
+# =========================
+# MAIN
+# =========================
 def main():
 
     # Parse command-line arguments
@@ -88,7 +97,7 @@ def main():
 
     # Initialize UI
     root = tk.Tk()
-    root.title("GBM8970 – VWFlow")
+    root.title("VWFlow")
     root.geometry("1200x800")
 
     # Create notebook and tabs
@@ -100,7 +109,7 @@ def main():
     notebook.add(stirrer_frame, text="Stirrer")
     stirrer_ui = StirrerUI(stirrer_frame, ser_stirrer, simulation_mode=STIRRER_SIMULATION)
 
-    # Create image tab
+    # Create counter tab
     counter_frame = ttk.Frame(notebook)
     notebook.add(counter_frame, text="Counter")
     counter_ui = CounterUI(counter_frame)
@@ -115,6 +124,7 @@ def main():
 
     # Start the main event loop
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()

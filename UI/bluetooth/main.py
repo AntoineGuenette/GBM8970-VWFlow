@@ -8,9 +8,11 @@ from bleak import BleakScanner
 from UI.bluetooth.stirrer_tab import StirrerUI
 from UI.counter_tab import CounterUI
 
+# =========================
+# ARGUMENT PARSING
+# =========================
 def parse_args():
-    # Parse command-line arguments for simulation modes
-    parser = argparse.ArgumentParser(description="GBM8970 – VWFlow controller")
+    parser = argparse.ArgumentParser(description="GBM8970 – VWFlow bluetooth controller")
 
     parser.add_argument(
         "--simulate-device",
@@ -57,6 +59,7 @@ def find_ble_device(simulation=False):
 # MAIN
 # =========================
 def main():
+
     # Parse command-line arguments
     args = parse_args()
 
@@ -77,15 +80,16 @@ def main():
                 "Make sure the Arduino is powered on and nearby."
             )
 
-    # Build UI
+    # Initialize UI
     root = tk.Tk()
-    root.title("GBM8970 – VWFlow")
+    root.title("VWFlow")
     root.geometry("1200x800")
 
+    # Create notebook and tabs
     notebook = ttk.Notebook(root)
     notebook.pack(fill="both", expand=True)
 
-    # Stirrer tab — uses stirrer characteristics
+    # Create stirrer tab
     stirrer_frame = ttk.Frame(notebook)
     notebook.add(stirrer_frame, text="Stirrer")
     stirrer_ui = StirrerUI(
@@ -95,7 +99,7 @@ def main():
         tx_uuid=STIRRER_TX_UUID,
     )
 
-    # Counter tab — no BLE connection
+    # Create counter tab
     counter_frame = ttk.Frame(notebook)
     notebook.add(counter_frame, text="Counter")
     counter_ui = CounterUI(counter_frame)
