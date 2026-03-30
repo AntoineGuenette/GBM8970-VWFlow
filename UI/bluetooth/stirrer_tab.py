@@ -5,7 +5,6 @@ import time
 import matplotlib
 matplotlib.use("TkAgg")
 
-from tkinter import messagebox
 from collections import deque
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -16,10 +15,10 @@ from bleak import BleakClient
 # =========================
 RPM_MIN = 1000
 RPM_MAX = 7500
-SHEAR_MIN = 500
-SHEAR_MAX = 3800
+SHEAR_MIN = 500     # Real value : 451.5
+SHEAR_MAX = 3800    # Real value : 3869.5
 
-SIMULATION_POINTS = [
+SIMULATION_POINTS = [ # (RPM, SHEAR) pairs for linear interpolation
     (1000, 451.5),
     (3000, 1464.5),
     (7500, 3869.5),
@@ -135,7 +134,6 @@ class BLEManager:
                 self._client.disconnect(), self._loop
             )
 
-
 # =========================
 # UI
 # =========================
@@ -182,6 +180,7 @@ class StirrerUI:
             self.ble = None
             self.status_text = tk.StringVar(value="SIMULATION MODE – no BLE device")
 
+        # Build the UI
         self._build_ui()
         self.update_slider_mode()
         self.update_plot()

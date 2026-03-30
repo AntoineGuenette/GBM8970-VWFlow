@@ -2,7 +2,6 @@ import os
 import cv2
 import tkinter as tk
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 from tkinter import filedialog
@@ -15,15 +14,7 @@ from matplotlib.figure import Figure
 # =========================
 # CONFIG
 # =========================
-# CONTROL_POINTS = { # min_val = 14
-#     # Activity: [(val1,std1), (val2,std2), (val3,std3)]
-#     104: [(42.99, 3.88), (55.50, 7.36), (73.99, 10.42)],
-#     78:  [(44.79, 2.71), (44.96, 6.91), (49.28, 4.69)],
-#     52:  [(40.38, 3.63), (46.89, 4.99), (60.08, 5.29)],
-#     26:  [(30.84, 3.21), (32.30, 3.13), (53.82, 6.99)],
-#     0:   [(0, 0)]
-# }
-CONTROL_POINTS = { # min_val = 10
+CONTROL_POINTS = {
     # Activity: [(val1,std1), (val2,std2), (val3,std3)]
     104: [(34.32,4.51), (43.85,5.12), (65.96,6.92)],
     78:  [(32.58,1.90), (26.89,4.96), (32.51,3.55)],
@@ -220,7 +211,7 @@ class CounterUI:
             fmt="o",
             color="blue",
             capsize=5,
-            label="Control points"
+            label="Calibration points"
         )
         self.ax_cal.legend()
         self.ax_cal.set_title("Calibration curve")
@@ -364,14 +355,9 @@ class CounterUI:
         self.canvas.draw_idle()
 
     def preprocess_image(self, file_path: str, bkgrd_img_path: str):
-        """
-        Runs the exact same preprocessing pipeline used in count_platelets
-        up to the normalized image stage so the UI preview matches DEBUG.
-        Returns: img, img_corrected, img_norm
-        """
+        # Open images
         img = cv2.imread(str(file_path), cv2.IMREAD_GRAYSCALE)
         bkgrd = cv2.imread(bkgrd_img_path, cv2.IMREAD_GRAYSCALE)
-
         img = img.astype(np.float32)
         bkgrd = bkgrd.astype(np.float32)
 
@@ -496,7 +482,7 @@ Activated platelet count : {act_mean_count:.1f} ± {act_std_count:.1f}
 Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         )
 
-        # Update images (use ORIGINAL images as background)
+        # Update images
         stat_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_stat_image_paths]
         act_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_act_image_paths]
 
@@ -537,7 +523,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
             fmt="o",
             color="blue",
             capsize=5,
-            label="Control points"
+            label="Calibration points"
         )
         self.ax_cal.errorbar(
             platelet_loss, activity,
@@ -576,7 +562,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         )
         bin_img = binary.astype(bool)
 
-        # Morphological filtering (work on boolean image)
+        # Morphological filtering
         filtered_bin_img = morphology.remove_small_objects(bin_img, max_size=10)
         filtered_bin_img = morphology.remove_small_holes(filtered_bin_img, max_size=50)
 
@@ -584,7 +570,7 @@ Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
         labels_all = measure.label(filtered_bin_img, connectivity=2)
         regions_all = measure.regionprops(labels_all)
 
-        # Filter the regions by their connectivity, their area and their circularity
+        # Filter the regions by their connectivity, their area and their solidity
         centroids = np.array([r.centroid for r in regions_all])
         diameters = np.array([r.equivalent_diameter_area for r in regions_all])
         D = cdist(centroids, centroids)

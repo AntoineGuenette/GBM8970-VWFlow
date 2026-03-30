@@ -4,7 +4,6 @@ import time
 import matplotlib
 matplotlib.use("TkAgg")
 
-from tkinter import messagebox
 from collections import deque
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -26,10 +25,6 @@ SIMULATION_POINTS = [ # (RPM, SHEAR) pairs for linear interpolation
 
 PLOT_WINDOW_SEC = 10
 PLOT_REFRESH_MS = 100
-
-# =========================
-# SERIAL
-# =========================
 
 # =========================
 # RPM <-> SHEAR CONVERSIONS
