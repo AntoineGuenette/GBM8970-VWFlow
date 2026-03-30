@@ -1,89 +1,106 @@
 #include <ArduinoBLE.h>
-#include <PID_v1.h>
+#include <AutoTunePID.h>
 
 // =========================
-// BLE SERVICES & CHARACTERISTICS
+// BLE
 // =========================
-
-// --- Stirrer Service ---
 BLEService stirrerService("12345678-1234-1234-1234-123456789abc");
-BLEStringCharacteristic stirrerRX("12345678-1234-1234-1234-123456789abd", BLEWrite | BLEWriteWithoutResponse, 64);
-BLEStringCharacteristic stirrerTX("12345678-1234-1234-1234-123456789abe", BLERead | BLENotify, 128);
 
-// --- Sensor Service ---
-BLEService sensorService("87654321-4321-4321-4321-cba987654321");
-BLEStringCharacteristic sensorRX("87654321-4321-4321-4321-cba987654322", BLEWrite | BLEWriteWithoutResponse, 64);
-BLEStringCharacteristic sensorTX("87654321-4321-4321-4321-cba987654323", BLERead | BLENotify, 256);
+BLEStringCharacteristic stirrerRX(
+  "12345678-1234-1234-1234-123456789abd",
+  BLEWrite | BLEWriteWithoutResponse,
+  64
+);
 
-// Helper to send data over BLE
-void stirrerSend(const String& s) { if (BLE.connected()) stirrerTX.setValue(s); }
-void sensorSend(const String& s)  { if (BLE.connected()) sensorTX.setValue(s);  }
+BLEStringCharacteristic stirrerTX(
+  "12345678-1234-1234-1234-123456789abe",
+  BLERead | BLENotify,
+  128
+);
+
+void stirrerSend(const String& s) {
+  if (BLE.connected()) stirrerTX.setValue(s);
+}
 
 // =========================
-// STIRRER: PIN & TIMING
+// PINS
 // =========================
-const int pin_hall  = 2;
-const int pin_motor = 9;
+const int pin_hall  = 14;
+const int pin_motor = 5;
 
-const unsigned long CTRL_PERIOD_MS = 250;
+// =========================
+// TUNED CONSTANTS  ← edit only here
+// =========================
+
+// RPM filter
+const int   WINDOW_SIZE  = 3;       // ticks × 100ms per RPM average
+const float EMA_ALPHA    = 0.4f;    // EMA smoothing (0=max smooth, 1=raw)
+
+// Hall sensor debounce (safe for 1 pulse/rev at 8000 RPM = 7500 µs/rev)
+const unsigned long DEBOUNCE_US = 4000;
+
+// Feedforward:  PWM = FF_OFFSET + KFF × Setpoint
+const float KFF       = 0.00398f;
+const float FF_OFFSET = 41.0f;
+
+// PI gains  (D = 0)
+const float KP = 0.008f;
+const float KI = 0.0004f;
+
+// Setpoint limits
+const float SP_MIN = 0.0f;
+const float SP_MAX = 5000.0f;
+
+// Pulses per revolution from hall sensor
+const int PULSES_PER_REV = 1;
+
+// Control loop period
+const unsigned long CTRL_PERIOD_MS = 100;
+
+// =========================
+// TIMING
+// =========================
 unsigned long lastCtrlMillis = 0;
 
 // =========================
-// STIRRER: RPM & FILTER
+// RPM MEASUREMENT
 // =========================
-volatile unsigned long pulseCount = 0;
-const int PULSES_PER_REV = 1;
+volatile unsigned long pulseCount  = 0;
+volatile unsigned long lastPulseUs = 0;
 
-double rawRPM      = 0.0;
-double rpmFiltered = 0.0;
-const double alpha = 0.05;
+float rawRPM      = 0.0f;
+float rpmFiltered = 0.0f;
 
-// =========================
-// STIRRER: CONTROL
-// =========================
-double Setpoint = 3000.0;
-double Input    = 0.0;
-double PIout    = 0.0;
-
-const double kFF        = 0.0092;
-double Kp               = 0.02;
-double Ki               = 0.0015;
-double Kd               = 0.0;
-const double MAX_PI_STEP = 1.0;
-
-PID speedPI(&Input, &PIout, &Setpoint, Kp, Ki, Kd, DIRECT);
+static unsigned long pulseSum    = 0;
+static int           windowCount = 0;
 
 // =========================
-// STIRRER: STATE
+// CONTROLLER
+// =========================
+float Setpoint = 0.0f;
+
+AutoTunePID pid(0.0f, 255.0f, TuningMethod::CohenCoon);
+
+// =========================
+// STATE
 // =========================
 bool motorEnabled  = false;
-bool streamEnabled = false;
+bool streamEnabled = true;
+
 unsigned long RUN_TIME_MS    = 0;
 unsigned long runStartMillis = 0;
 bool timedRunActive          = false;
 
 // =========================
-// SENSOR: PINS & CONFIG
-// =========================
-const int pin_ledIR = 8;
-const int pin_adc   = A0;
-
-const int N_AVG                    = 100;
-const int T_US                     = 300;
-const unsigned long ACQ_TIME_MS    = 5000;
-const unsigned long SAMPLE_DELAY   = 100;
-
-// =========================
-// SENSOR: STATE
-// =========================
-bool acquisitionActive       = false;
-unsigned long acqStartMillis = 0;
-unsigned long lastSampleMillis = 0;
-
-// =========================
 // ISR
 // =========================
-void hallISR() { pulseCount++; }
+void hallISR() {
+  unsigned long now = micros();
+  if (now - lastPulseUs >= DEBOUNCE_US) {
+    pulseCount++;
+    lastPulseUs = now;
+  }
+}
 
 // =========================
 // SETUP
@@ -91,46 +108,29 @@ void hallISR() { pulseCount++; }
 void setup() {
   Serial.begin(9600);
 
-  // Stirrer pins
   pinMode(pin_hall, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(pin_hall), hallISR, FALLING);
+
   pinMode(pin_motor, OUTPUT);
   analogWrite(pin_motor, 0);
 
-  // Sensor pins
-  pinMode(pin_ledIR, OUTPUT);
-  digitalWrite(pin_ledIR, LOW);
+  pid.setSetpoint(Setpoint);
+  pid.setManualGains(KP, KI, 0.0f);
+  pid.enableAntiWindup(true, 0.8f);
+  pid.setOscillationMode(OscillationMode::Normal);
 
-  // PID
-  speedPI.SetSampleTime(CTRL_PERIOD_MS);
-  speedPI.SetOutputLimits(-50, 50);
-  speedPI.SetMode(AUTOMATIC);
+  if (!BLE.begin()) { while (1) {} }
 
-  // BLE init
-  if (!BLE.begin()) {
-    Serial.println("BLE init failed!");
-    while (1);
-  }
+  BLE.setLocalName("Arduino");
+  BLE.setDeviceName("Arduino");
 
-  BLE.setLocalName("VWFlow");
-
-  // Register stirrer service
   stirrerService.addCharacteristic(stirrerRX);
   stirrerService.addCharacteristic(stirrerTX);
   BLE.addService(stirrerService);
-
-  // Register sensor service
-  sensorService.addCharacteristic(sensorRX);
-  sensorService.addCharacteristic(sensorTX);
-  BLE.addService(sensorService);
-
-  // Advertise both services
   BLE.setAdvertisedService(stirrerService);
-  stirrerTX.setValue("");
-  sensorTX.setValue("");
 
+  stirrerTX.setValue("");
   BLE.advertise();
-  Serial.println("BLE advertising as 'VWFlow'");
 }
 
 // =========================
@@ -138,17 +138,22 @@ void setup() {
 // =========================
 void loop() {
   BLE.poll();
-
-  handleStirrerCommands();
-  handleSensorCommands();
-  runStirrerControl();
-  runSensorAcquisition();
+  handleCommands();
+  runControl();
 }
 
 // =========================
-// STIRRER COMMAND HANDLER
+// COMMANDS
 // =========================
-void handleStirrerCommands() {
+//   WHO         → identify device
+//   START       → enable motor
+//   STOP        → disable motor
+//   S <rpm>     → set target RPM
+//   T <seconds> → set run duration (0 = forever)
+//   STREAM ON   → enable data stream
+//   STREAM OFF  → disable data stream
+// =========================
+void handleCommands() {
   if (!stirrerRX.written()) return;
 
   String cmd = stirrerRX.value();
@@ -156,168 +161,92 @@ void handleStirrerCommands() {
 
   if (cmd == "WHO") {
     stirrerSend("DEVICE:STIRRER\n");
-    return;
   }
-  if (cmd == "START") {
+  else if (cmd == "START") {
     motorEnabled    = true;
     timedRunActive  = true;
     runStartMillis  = millis();
-  } else if (cmd == "STOP") {
+    pid.setManualGains(KP, KI, 0.0f);  // reset integrator on each start
+  }
+  else if (cmd == "STOP") {
     motorEnabled   = false;
     timedRunActive = false;
     analogWrite(pin_motor, 0);
-  } else if (cmd.startsWith("S ")) {
-    Setpoint = constrain(cmd.substring(2).toFloat(), 0, 12000);
-  } else if (cmd.startsWith("KP ")) {
-    Kp = cmd.substring(3).toFloat();
-    speedPI.SetTunings(Kp, Ki, 0);
-  } else if (cmd.startsWith("KI ")) {
-    Ki = cmd.substring(3).toFloat();
-    speedPI.SetTunings(Kp, Ki, 0);
-  } else if (cmd.startsWith("T ")) {
-    double seconds = cmd.substring(2).toFloat();
-    RUN_TIME_MS = (seconds <= 0) ? 0 : (unsigned long)(seconds * 1000.0);
-  } else if (cmd == "STREAM ON")  { streamEnabled = true;  }
-  else if (cmd == "STREAM OFF") { streamEnabled = false; }
+    stirrerSend("STOPPED\n");
+  }
+  else if (cmd.startsWith("S ")) {
+    Setpoint = constrain(cmd.substring(2).toFloat(), SP_MIN, SP_MAX);
+    pid.setSetpoint(Setpoint);
+    stirrerSend("SETPOINT," + String(Setpoint, 0) + "\n");
+  }
+  else if (cmd.startsWith("T ")) {
+    float seconds = cmd.substring(2).toFloat();
+    RUN_TIME_MS = (seconds <= 0.0f) ? 0UL : (unsigned long)(seconds * 1000.0f);
+  }
+  else if (cmd == "STREAM ON") {
+    streamEnabled = true;
+  }
+  else if (cmd == "STREAM OFF") {
+    streamEnabled = false;
+  }
 }
 
 // =========================
-// STIRRER CONTROL LOOP
+// CONTROL LOOP
 // =========================
-void runStirrerControl() {
-  // Timed auto-stop
-  if (timedRunActive && RUN_TIME_MS > 0 &&
-      millis() - runStartMillis >= RUN_TIME_MS) {
-    motorEnabled   = false;
-    timedRunActive = false;
-    analogWrite(pin_motor, 0);
-  }
-
+void runControl() {
   unsigned long now = millis();
   if (now - lastCtrlMillis < CTRL_PERIOD_MS) return;
   lastCtrlMillis = now;
 
-  // RPM calculation
+  // --- Timed run check ---
+  if (timedRunActive && RUN_TIME_MS > 0 && (now - runStartMillis >= RUN_TIME_MS)) {
+    motorEnabled   = false;
+    timedRunActive = false;
+    analogWrite(pin_motor, 0);
+    stirrerSend("STOPPED\n");
+    return;
+  }
+
+  // --- RPM measurement ---
   unsigned long pulses;
   noInterrupts();
-  pulses = pulseCount;
+  pulses     = pulseCount;
   pulseCount = 0;
   interrupts();
 
-  rawRPM      = (pulses * 60000.0) / (CTRL_PERIOD_MS * PULSES_PER_REV);
-  rpmFiltered = alpha * rawRPM + (1.0 - alpha) * rpmFiltered;
+  pulseSum += pulses;
+  windowCount++;
 
-  // Time left message
-  static unsigned long lastTimeMsg = 0;
-  if (streamEnabled && motorEnabled && millis() - lastTimeMsg > 500) {
-    lastTimeMsg = millis();
-    if (RUN_TIME_MS == 0) {
-      stirrerSend("TIME_LEFT,INF\n");
-    } else {
-      long remaining = (long)(RUN_TIME_MS - (millis() - runStartMillis));
-      if (remaining < 0) remaining = 0;
-      stirrerSend("TIME_LEFT," + String(remaining) + "\n");
-    }
+  if (windowCount >= WINDOW_SIZE) {
+    rawRPM = (pulseSum * 60000.0f) /
+             ((float)(CTRL_PERIOD_MS * windowCount) * PULSES_PER_REV);
+    pulseSum    = 0;
+    windowCount = 0;
   }
 
+  rpmFiltered = EMA_ALPHA * rawRPM + (1.0f - EMA_ALPHA) * rpmFiltered;
+
+  // --- Motor off ---
   if (!motorEnabled) {
     analogWrite(pin_motor, 0);
     return;
   }
 
-  // PID control
-  double error = Setpoint - rpmFiltered;
-  double pwmFF = kFF * Setpoint;
+  // --- Feedforward + PI ---
+  float pwmFF  = FF_OFFSET + KFF * Setpoint;
+  pid.update(rpmFiltered);
+  float pwmPID = pid.getOutput();
 
-  if (abs(error) < 80.0) {
-    speedPI.SetMode(MANUAL);
-    PIout = 0;
-  } else {
-    speedPI.SetMode(AUTOMATIC);
-    Input = rpmFiltered;
-    speedPI.Compute();
-  }
+  int pwm = constrain((int)(pwmFF + pwmPID), 0, 255);
+  analogWrite(pin_motor, pwm);
 
-  static double lastPI = 0;
-  if (PIout > lastPI + MAX_PI_STEP) PIout = lastPI + MAX_PI_STEP;
-  if (PIout < lastPI - MAX_PI_STEP) PIout = lastPI - MAX_PI_STEP;
-  lastPI = PIout;
-
-  double pwmCmd = constrain(pwmFF + PIout, 0, 255);
-  analogWrite(pin_motor, (int)pwmCmd);
-
+  // --- Stream: Setpoint,RPM,PWM ---
   if (streamEnabled) {
-    stirrerSend(String(Setpoint) + "," + String(rpmFiltered) + "," + String(pwmCmd) + "\n");
-    stirrerSend("b\n");
+    stirrerSend(
+      String(Setpoint,    0) + "," +
+      String(rpmFiltered, 1) + "," +
+      String(pwm)            + "\n"
+    );
   }
-}
-
-// =========================
-// SENSOR COMMAND HANDLER
-// =========================
-void handleSensorCommands() {
-  if (!sensorRX.written()) return;
-
-  String cmd = sensorRX.value();
-  cmd.trim();
-
-  if (cmd == "WHO") {
-    sensorSend("DEVICE:SENSOR\n");
-  } else if (cmd == "START") {
-    acquisitionActive  = true;
-    acqStartMillis     = millis();
-    lastSampleMillis   = acqStartMillis;
-    sensorSend("time_ms,Voff,Von,Vdiff\n");
-  } else if (cmd == "STOP") {
-    acquisitionActive = false;
-    digitalWrite(pin_ledIR, LOW);
-  }
-}
-
-// =========================
-// SENSOR ACQUISITION LOOP
-// =========================
-void runSensorAcquisition() {
-  if (!acquisitionActive) return;
-
-  unsigned long now = millis();
-
-  // Auto-stop after ACQ_TIME_MS
-  if (now - acqStartMillis >= ACQ_TIME_MS) {
-    acquisitionActive = false;
-    digitalWrite(pin_ledIR, LOW);
-    return;
-  }
-
-  if (now - lastSampleMillis < SAMPLE_DELAY) return;
-  lastSampleMillis = now;
-
-  // Averaging
-  long sumOff = 0, sumOn = 0, sumDiff = 0;
-  for (int i = 0; i < N_AVG; i++) {
-    digitalWrite(pin_ledIR, LOW);
-    delayMicroseconds(T_US);
-    int off = analogRead(pin_adc);
-
-    digitalWrite(pin_ledIR, HIGH);
-    delayMicroseconds(T_US);
-    int on = analogRead(pin_adc);
-
-    sumOff  += off;
-    sumOn   += on;
-    sumDiff += (on - off);
-  }
-
-  // ESP32 ADC: 12-bit (0–4095), 3.3V reference
-  const double ADC_TO_V = 3.3 / 4095.0;
-  double Voff  = (sumOff  / (double)N_AVG) * ADC_TO_V;
-  double Von   = (sumOn   / (double)N_AVG) * ADC_TO_V;
-  double Vdiff = (sumDiff / (double)N_AVG) * ADC_TO_V;
-
-  unsigned long t = now - acqStartMillis;
-  String line = String(t) + "," +
-                String(Voff, 6) + "," +
-                String(Von, 6) + "," +
-                String(Vdiff, 6) + "\n";
-  sensorSend(line);
 }
