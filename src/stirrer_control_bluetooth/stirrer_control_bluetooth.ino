@@ -23,7 +23,7 @@ void stirrerSend(const String& s) {
 }
 
 // =========================
-// PINS
+// PINS GPLO (legacy)
 // =========================
 const int pin_hall  = 14;
 const int pin_motor = 5;
@@ -31,21 +31,22 @@ const int pin_motor = 5;
 // =========================
 // TUNED CONSTANTS  ← edit only here
 // =========================
-
+const double MAX_PI_STEP = 1;
 // RPM filter
-const int   WINDOW_SIZE  = 3;       // ticks × 100ms per RPM average
-const float EMA_ALPHA    = 0.4f;    // EMA smoothing (0=max smooth, 1=raw)
+const int   WINDOW_SIZE  = 1;       // ticks × 100ms per RPM average
+const float EMA_ALPHA    = 0.2f;  
 
 // Hall sensor debounce (safe for 1 pulse/rev at 8000 RPM = 7500 µs/rev)
 const unsigned long DEBOUNCE_US = 4000;
 
 // Feedforward:  PWM = FF_OFFSET + KFF × Setpoint
 const float KFF       = 0.00398f;
-const float FF_OFFSET = 41.0f;
+const float FF_OFFSET = 46.0f;
 
 // PI gains  (D = 0)
-const float KP = 0.008f;
-const float KI = 0.0004f;
+const float KP = 0.0054f;
+const float KI = 0.00007f;
+
 
 // Setpoint limits
 const float SP_MIN = 0.0f;
@@ -237,7 +238,13 @@ void runControl() {
   float pwmFF  = FF_OFFSET + KFF * Setpoint;
   pid.update(rpmFiltered);
   float pwmPID = pid.getOutput();
-
+  
+  // ---PI step limiting ---
+  static double lastPI = 0;
+  if (pwmPID > lastPI + MAX_PI_STEP)pwmPID = lastPI + MAX_PI_STEP;
+  if (pwmPID < lastPI - MAX_PI_STEP)pwmPID = lastPI - MAX_PI_STEP;
+  lastPI=pwmPID ;
+  
   int pwm = constrain((int)(pwmFF + pwmPID), 0, 255);
   analogWrite(pin_motor, pwm);
 
