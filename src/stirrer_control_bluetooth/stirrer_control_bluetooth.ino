@@ -31,26 +31,26 @@ const int pin_motor = 5;
 // =========================
 // TUNED CONSTANTS  ← edit only here
 // =========================
-const double MAX_PI_STEP = 1;
+const double MAX_PI_STEP = 5;
 // RPM filter
 const int   WINDOW_SIZE  = 1;       // ticks × 100ms per RPM average
 const float EMA_ALPHA    = 0.2f;  
 
 // Hall sensor debounce (safe for 1 pulse/rev at 8000 RPM = 7500 µs/rev)
-const unsigned long DEBOUNCE_US = 4000;
+const unsigned long DEBOUNCE_US = 5000;
 
 // Feedforward:  PWM = FF_OFFSET + KFF × Setpoint
 const float KFF       = 0.00398f;
-const float FF_OFFSET = 46.0f;
+const float FF_OFFSET = 42.0f;
 
 // PI gains  (D = 0)
-const float KP = 0.0054f;
-const float KI = 0.00007f;
+const float KP = 0.0058f;
+const float KI = 0.00008f;
 
 
 // Setpoint limits
 const float SP_MIN = 0.0f;
-const float SP_MAX = 5000.0f;
+const float SP_MAX = 7000.0f;
 
 // Pulses per revolution from hall sensor
 const int PULSES_PER_REV = 1;
