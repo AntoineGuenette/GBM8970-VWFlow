@@ -5,6 +5,7 @@ import time
 import matplotlib
 matplotlib.use("TkAgg")
 
+from tkinter import messagebox
 from collections import deque
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -15,10 +16,10 @@ from bleak import BleakClient
 # =========================
 RPM_MIN = 1000
 RPM_MAX = 7500
-SHEAR_MIN = 500     # Real value : 451.5
-SHEAR_MAX = 3800    # Real value : 3869.5
+SHEAR_MIN = 500
+SHEAR_MAX = 3800
 
-SIMULATION_POINTS = [ # (RPM, SHEAR) pairs for linear interpolation
+SIMULATION_POINTS = [
     (1000, 451.5),
     (3000, 1464.5),
     (7500, 3869.5),
@@ -129,22 +130,39 @@ class BLEManager:
             print(f"BLE write error: {e}")
 
     def disconnect(self):
+        """Fire-and-forget disconnect (kept for compatibility)."""
         if self._connected and self._client:
             asyncio.run_coroutine_threadsafe(
                 self._client.disconnect(), self._loop
             )
+
+    def disconnect_and_wait(self, timeout: float = 3.0):
+        """
+        Fully disconnect from the BLE device and block until done.
+        This ensures the Arduino releases its BLE slot so another
+        computer can connect immediately after.
+        """
+        if self._connected and self._client:
+            future = asyncio.run_coroutine_threadsafe(
+                self._client.disconnect(), self._loop
+            )
+            try:
+                future.result(timeout=timeout)
+                print("BLE disconnected cleanly.")
+            except Exception as e:
+                print(f"BLE disconnect error: {e}")
+        # Stop the background event loop so the thread exits cleanly
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=timeout)
+        print("BLE background thread stopped.")
+
 
 # =========================
 # UI
 # =========================
 class StirrerUI:
     def __init__(self, parent, ble_address=None, rx_uuid=None, tx_uuid=None):
-        global SIMULATION_MODE
         self.root = parent
-
-        # Enable simulation automatically if a dummy BLE address is provided
-        if ble_address == "00:00:00:00:00:00" or ble_address is None:
-            SIMULATION_MODE = True
 
         # Data buffers
         self.start_time = time.time()
@@ -174,13 +192,12 @@ class StirrerUI:
                 on_line_received=self._on_line_received,
             )
             self.status_text = tk.StringVar(value=f"Connecting BLE to {ble_address}...")
+            # Enable streaming once connected (poll until connected)
             self.root.after(2000, self._init_stream)
         else:
-            # Simulation: no BLE connection
             self.ble = None
-            self.status_text = tk.StringVar(value="SIMULATION MODE – no BLE device")
+            self.status_text = tk.StringVar(value="SIMULATION (UI only)")
 
-        # Build the UI
         self._build_ui()
         self.update_slider_mode()
         self.update_plot()
@@ -200,11 +217,18 @@ class StirrerUI:
             self.ble.write(text)
 
     def _on_line_received(self, line: str):
+        print(f"RAW: '{line}'")  
         """
         Called from the BLE background thread — only update tkinter
         variables (thread-safe); never call tkinter widgets directly.
         """
         try:
+            # ===== PID OUTPUT =====
+            if line.startswith("PID"):
+                print("\n=== NEW PID GAINS ===")
+                print(line)
+                print("=====================\n")
+                return
             if line.startswith("TIME_LEFT"):
                 _, v = line.split(",")
                 if v == "INF":
@@ -220,7 +244,7 @@ class StirrerUI:
             parts = line.split(",")
             if len(parts) == 3:
                 _, rpm, pwm = parts
-                rpm = float(rpm)
+                rpm = float(rpm.replace(",", "."))
                 t = time.time() - self.start_time
                 self.time_buffer.append(t)
                 self.rpm_buffer.append(rpm)
@@ -367,9 +391,9 @@ class StirrerUI:
         try:
             self._ble_write("STREAM OFF\n")
             self._ble_write("STOP\n")
-            time.sleep(0.3)
+            time.sleep(0.5)  # give BLE writes time to flush
             if self.ble:
-                self.ble.disconnect()
-        except Exception:
-            pass
-        self.root.destroy()
+                self.ble.disconnect_and_wait()
+        except Exception as e:
+            print(f"on_close error: {e}")
+        # NOTE: do NOT call self.root.destroy() here — main.py handles it
