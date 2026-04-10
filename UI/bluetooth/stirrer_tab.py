@@ -217,7 +217,7 @@ class StirrerUI:
             self.ble.write(text)
 
     def _on_line_received(self, line: str):
-        print(f"RAW: '{line}'")  
+
         """
         Called from the BLE background thread — only update tkinter
         variables (thread-safe); never call tkinter widgets directly.
