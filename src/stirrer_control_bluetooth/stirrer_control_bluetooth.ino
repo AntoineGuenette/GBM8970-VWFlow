@@ -199,6 +199,22 @@ void runControl() {
   unsigned long now = millis();
   if (now - lastCtrlMillis < CTRL_PERIOD_MS) return;
   lastCtrlMillis = now;
+  
+  // -------------------------
+  // SEND TIME LEFT (only if streaming enabled)
+  // -------------------------
+  static unsigned long lastTimeMsg = 0;
+  if (streamEnabled && motorEnabled && millis() - lastTimeMsg > 500) {
+    lastTimeMsg = millis();
+
+    if (RUN_TIME_MS == 0) {
+      stirrerSend("TIME_LEFT,INF\n");
+    } else {
+      long remaining = (long)(RUN_TIME_MS - (millis() - runStartMillis));
+      if (remaining < 0) remaining = 0;
+      stirrerSend("TIME_LEFT," + String(remaining) + "\n");
+    }
+  }
 
   // --- Timed run check ---
   if (timedRunActive && RUN_TIME_MS > 0 && (now - runStartMillis >= RUN_TIME_MS)) {
