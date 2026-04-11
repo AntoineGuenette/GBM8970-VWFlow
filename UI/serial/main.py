@@ -9,7 +9,6 @@ from tkinter import ttk
 from UI.serial.stirrer_tab import StirrerUI
 from UI.counter_tab import CounterUI
 
-
 # =========================
 # ARGUMENT PARSING
 # =========================

@@ -5,7 +5,6 @@ import time
 import matplotlib
 matplotlib.use("TkAgg")
 
-from tkinter import messagebox
 from collections import deque
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
