@@ -189,7 +189,7 @@ class StirrerUI:
                 address=ble_address,
                 rx_uuid=rx_uuid,
                 tx_uuid=tx_uuid,
-                on_line_received=self._on_line_received,
+                on_line_received=self._threadsafe_on_line_received,
             )
             self.status_text = tk.StringVar(value=f"Connecting BLE to {ble_address}...")
             # Enable streaming once connected (poll until connected)
@@ -216,8 +216,11 @@ class StirrerUI:
         if not SIMULATION_MODE and self.ble:
             self.ble.write(text)
 
-    def _on_line_received(self, line: str):
+    def _threadsafe_on_line_received(self, line: str):
+        """Ensure BLE callbacks are executed in the Tkinter main thread."""
+        self.root.after(0, self._on_line_received, line)
 
+    def _on_line_received(self, line: str):
         """
         Called from the BLE background thread — only update tkinter
         variables (thread-safe); never call tkinter widgets directly.

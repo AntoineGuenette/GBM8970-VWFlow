@@ -235,23 +235,31 @@ class StirrerUI:
 
                 if line.startswith("TIME_LEFT"):
                     _, v = line.split(",")
-                    if v == "INF":
-                        self.time_left_text.set("Time left: ∞")
-                    else:
-                        s = int(v) // 1000
-                        self.time_left_text.set(f"Time left: {s//60:02d}:{s%60:02d}")
-                    continue
 
-                _, rpm, pwm = line.split(",")
-                rpm = float(rpm)
-                t = time.time() - self.start_time
+                    def update_time_left():
+                        if v == "INF":
+                            self.time_left_text.set("Time left: ∞")
+                        else:
+                            s = int(v) // 1000
+                            self.time_left_text.set(f"Time left: {s//60:02d}:{s%60:02d}")
 
-                self.time_buffer.append(t)
-                self.rpm_buffer.append(rpm)
+                    self.root.after(0, update_time_left)
+                    return
 
-                self.rpm_text.set(f"Rotation speed: {rpm:.0f} RPM")
-                self.shear_text.set(f"Mean shear rate: {rpm_to_shear(rpm):.1f} s⁻¹")
-                self.pwm_text.set(f"PWM: {pwm}\n")
+                parts = line.split(",")
+                if len(parts) == 3:
+                    _, rpm, pwm = parts
+                    rpm = float(rpm.replace(",", "."))
+                    t = time.time() - self.start_time
+
+                    def update_ui():
+                        self.time_buffer.append(t)
+                        self.rpm_buffer.append(rpm)
+                        self.rpm_text.set(f"Rotation speed: {rpm:.0f} RPM")
+                        self.shear_text.set(f"Mean shear rate: {rpm_to_shear(rpm):.1f} s⁻¹")
+                        self.pwm_text.set(f"PWM: {pwm}\n")
+
+                    self.root.after(0, update_ui)
 
             except:
                 pass
