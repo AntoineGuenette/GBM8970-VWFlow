@@ -429,127 +429,121 @@ class CounterUI:
         Uses stored paths to call count_platelets.
         Display results and updates count
         """
-        import threading
+        if not self.selected_stat_image_paths:
+            print("No non activated platelet images selected.")
+            return
+        
+        if not self.selected_act_image_paths:
+            print("No activated platelet images selected.")
+            return
 
-        def worker():
-            try:
-                if not self.selected_stat_image_paths:
-                    print("No non activated platelet images selected.")
-                    return
-                
-                if not self.selected_act_image_paths:
-                    print("No activated platelet images selected.")
-                    return
+        if not self.selected_background_path:
+            print("No background image selected.")
+            return
 
-                if not self.selected_background_path:
-                    print("No background image selected.")
-                    return
+        stat_counts = []
+        stat_overlays = []
+        for file_path in self.selected_stat_image_paths:
+            labels_filtered = self.count_platelets(
+                file_path=file_path,
+                bkgrd_img_path=self.selected_background_path,
+                debug=self.debug_mode.get()
+            )
+            stat_counts.append(np.max(labels_filtered))
+            stat_overlays.append(labels_filtered)
 
-                stat_counts = []
-                stat_overlays = []
-                for file_path in self.selected_stat_image_paths:
-                    labels_filtered = self.count_platelets(
-                        file_path=file_path,
-                        bkgrd_img_path=self.selected_background_path,
-                        debug=self.debug_mode.get()
-                    )
-                    stat_counts.append(np.max(labels_filtered))
-                    stat_overlays.append(labels_filtered)
+        act_counts = []
+        act_overlays = []
+        for file_path in self.selected_act_image_paths:
+            labels_filtered = self.count_platelets(
+                file_path=file_path,
+                bkgrd_img_path=self.selected_background_path,
+                debug=self.debug_mode.get()
+            )
+            act_counts.append(np.max(labels_filtered))
+            act_overlays.append(labels_filtered)
 
-                act_counts = []
-                act_overlays = []
-                for file_path in self.selected_act_image_paths:
-                    labels_filtered = self.count_platelets(
-                        file_path=file_path,
-                        bkgrd_img_path=self.selected_background_path,
-                        debug=self.debug_mode.get()
-                    )
-                    act_counts.append(np.max(labels_filtered))
-                    act_overlays.append(labels_filtered)
+        # Show platelet counts
+        stat_mean_count = np.mean(stat_counts)
+        stat_std_count = np.std(stat_counts)
+        act_mean_count = np.mean(act_counts)
+        act_std_count = np.std(act_counts)
+        platelet_loss = (stat_mean_count - act_mean_count) / stat_mean_count * 100
 
-                stat_mean_count = np.mean(stat_counts)
-                stat_std_count = np.std(stat_counts)
-                act_mean_count = np.mean(act_counts)
-                act_std_count = np.std(act_counts)
-                platelet_loss = (stat_mean_count - act_mean_count) / stat_mean_count * 100
+        # Propagate uncertainty for platelet loss (ratio propagation)
+        epsilon = 1e-12
+        rel_stat_std = stat_std_count / (stat_mean_count + epsilon)
+        rel_act_std = act_std_count / (act_mean_count + epsilon)
+        platelet_loss_std = abs(platelet_loss) * np.sqrt(rel_stat_std**2 + rel_act_std**2)
 
-                epsilon = 1e-12
-                rel_stat_std = stat_std_count / (stat_mean_count + epsilon)
-                rel_act_std = act_std_count / (act_mean_count + epsilon)
-                platelet_loss_std = abs(platelet_loss) * np.sqrt(rel_stat_std**2 + rel_act_std**2)
-
-                activity = platelets_to_vwf_activity(platelet_loss)
-                activity_std = abs(m) * platelet_loss_std
-
-                stat_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_stat_image_paths]
-                act_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_act_image_paths]
-
-                def update_ui():
-                    self.platelet_count_text.set(
-                        f"""Non activated platelet count : {stat_mean_count:.1f} ± {stat_std_count:.1f}
+        self.platelet_count_text.set(
+            f"""Non activated platelet count : {stat_mean_count:.1f} ± {stat_std_count:.1f}
 Activated platelet count : {act_mean_count:.1f} ± {act_std_count:.1f}
 Platelet loss : ({platelet_loss:.2f} ± {platelet_loss_std:.2f}) %"""
-                    )
+        )
 
-                    axes_images = [
-                        (self.ax_im1, stat_originals[0], stat_overlays[0], f"{stat_counts[0]} platelets"),
-                        (self.ax_im2, stat_originals[1], stat_overlays[1], f"{stat_counts[1]} platelets"),
-                        (self.ax_im3, stat_originals[2], stat_overlays[2], f"{stat_counts[2]} platelets"),
-                        (self.ax_im4, act_originals[0], act_overlays[0], f"{act_counts[0]} platelets"),
-                        (self.ax_im5, act_originals[1], act_overlays[1], f"{act_counts[1]} platelets"),
-                        (self.ax_im6, act_originals[2], act_overlays[2], f"{act_counts[2]} platelets"),
-                    ]
+        # Update images
+        stat_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_stat_image_paths]
+        act_originals = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in self.selected_act_image_paths]
 
-                    for ax, base_img, overlay, title in axes_images:
-                        ax.clear()
-                        ax.imshow(base_img, cmap="gray")
-                        ax.imshow(overlay, cmap="nipy_spectral", alpha=0.5)
-                        ax.set_title(title)
-                        ax.axis("off")
+        axes_images = [
+            (self.ax_im1, stat_originals[0], stat_overlays[0], f"{stat_counts[0]} platelets"),
+            (self.ax_im2, stat_originals[1], stat_overlays[1], f"{stat_counts[1]} platelets"),
+            (self.ax_im3, stat_originals[2], stat_overlays[2], f"{stat_counts[2]} platelets"),
+            (self.ax_im4, act_originals[0], act_overlays[0], f"{act_counts[0]} platelets"),
+            (self.ax_im5, act_originals[1], act_overlays[1], f"{act_counts[1]} platelets"),
+            (self.ax_im6, act_originals[2], act_overlays[2], f"{act_counts[2]} platelets"),
+        ]
 
-                    self.activity_text.set(f"({activity:.2f} ± {activity_std:.2f}) %")
+        for ax, base_img, overlay, title in axes_images:
+            ax.clear()
+            ax.imshow(base_img, cmap="gray")
+            ax.imshow(overlay, cmap="nipy_spectral", alpha=0.5)
+            ax.set_title(title)
+            ax.axis("off")
 
-                    x_vals = np.linspace(0, 100, 1000)
-                    y_vals = linear_model(x_vals, m, b)
+        self.canvas.draw_idle()
 
-                    self.ax_cal.clear()
-                    self.ax_cal.plot(x_vals, y_vals, color="black", linestyle="--",
-                                        label="Calibration Curve")
-                    self.ax_cal.errorbar(
-                        x_mean, y,
-                        xerr=x_std,
-                        fmt="o",
-                        color="blue",
-                        capsize=5,
-                        label="Calibration points"
-                    )
-                    self.ax_cal.errorbar(
-                        platelet_loss, activity,
-                        xerr=platelet_loss_std,
-                        yerr=activity_std,
-                        fmt="o",
-                        color="red",
-                        ecolor="red",
-                        elinewidth=2,
-                        capsize=5,
-                        label=f"Measured Point"
-                    )
-                    self.ax_cal.set_xlabel("Platelet loss (%)")
-                    self.ax_cal.set_ylabel("VWF Activity (%)")
-                    self.ax_cal.set_xlim(0, 100)
-                    self.ax_cal.set_ylim(0, 200)
-                    self.ax_cal.set_title("Calibration Curve")
-                    self.ax_cal.legend()
-                    self.ax_cal.grid(True)
+        # Show activity
+        activity = platelets_to_vwf_activity(platelet_loss)
+        # Propagate uncertainty through linear calibration (y = m x + b)
+        activity_std = abs(m) * platelet_loss_std
+        self.activity_text.set(f"({activity:.2f} ± {activity_std:.2f}) %")
 
-                    self.canvas.draw_idle()
+        # Update calibration curve plot
+        x_vals = np.linspace(0, 100, 1000)
+        y_vals = linear_model(x_vals, m, b)
 
-                self.root.after(0, update_ui)
-
-            except Exception as e:
-                print(f"Error in platelet computation: {e}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        self.ax_cal.clear()
+        self.ax_cal.plot(x_vals, y_vals, color="black", linestyle="--",
+                            label="Calibration Curve")
+        self.ax_cal.errorbar(
+            x_mean, y,
+            xerr=x_std,
+            fmt="o",
+            color="blue",
+            capsize=5,
+            label="Calibration points"
+        )
+        self.ax_cal.errorbar(
+            platelet_loss, activity,
+            xerr=platelet_loss_std,
+            yerr=activity_std,
+            fmt="o",
+            color="red",
+            ecolor="red",
+            elinewidth=2,
+            capsize=5,
+            label=f"Measured Point"
+        )
+        self.ax_cal.set_xlabel("Platelet loss (%)")
+        self.ax_cal.set_ylabel("VWF Activity (%)")
+        self.ax_cal.set_xlim(0, 100)
+        self.ax_cal.set_ylim(0, 200)
+        self.ax_cal.set_title("Calibration Curve")
+        self.ax_cal.legend()
+        self.ax_cal.grid(True)
+        self.canvas.draw_idle()
 
     def count_platelets(self, file_path: str, bkgrd_img_path: str, debug=False) -> np.array:
         # Define file paths
