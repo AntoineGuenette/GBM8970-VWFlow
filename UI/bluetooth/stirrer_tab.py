@@ -28,7 +28,7 @@ SIMULATION_POINTS = [
 PLOT_WINDOW_SEC = 10
 PLOT_REFRESH_MS = 100
 
-SIMULATION_MODE = False
+SIMULATION_MODE = False  # will be overridden by main if needed
 
 # =========================
 # RPM <-> SHEAR CONVERSIONS
@@ -161,8 +161,11 @@ class BLEManager:
 # UI
 # =========================
 class StirrerUI:
-    def __init__(self, parent, ble_address=None, rx_uuid=None, tx_uuid=None):
+    def __init__(self, parent, ble_address=None, rx_uuid=None, tx_uuid=None, simulation_mode=False):
         self.root = parent
+
+        global SIMULATION_MODE
+        SIMULATION_MODE = simulation_mode
 
         # Data buffers
         self.start_time = time.time()

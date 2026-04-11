@@ -96,6 +96,7 @@ def main():
         ble_address=ble_address,
         rx_uuid=STIRRER_RX_UUID,
         tx_uuid=STIRRER_TX_UUID,
+        simulation_mode=SIMULATION,
     )
 
     # Create counter tab
